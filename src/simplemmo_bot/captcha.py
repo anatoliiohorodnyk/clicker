@@ -36,7 +36,7 @@ class CaptchaSolver:
         """Initialize captcha solver with Gemini API."""
         self.settings = settings
         genai.configure(api_key=settings.gemini_api_key)
-        self.model = genai.GenerativeModel("gemini-1.5-flash")
+        self.model = genai.GenerativeModel("gemini-2.0-flash")
 
         # Setup cookies for web authentication (Laravel app)
         cookies = {}
