@@ -206,9 +206,15 @@ class TravelBot:
 
                 # Handle different action types
                 if result.action == "npc":
-                    self._handle_npc(result)
+                    if self.settings.auto_fight_npc:
+                        self._handle_npc(result)
+                    else:
+                        logger.info(f"NPC skipped (auto-fight disabled)")
                 elif result.action == "material":
-                    self._handle_material(result)
+                    if self.settings.auto_gather_materials:
+                        self._handle_material(result)
+                    else:
+                        logger.info(f"Material skipped (auto-gather disabled)")
                 elif result.action == "item":
                     self.stats.items_found += 1
                     logger.info(f"Found item: {result.data.get('item_name', 'Unknown')}")

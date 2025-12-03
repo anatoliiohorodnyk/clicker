@@ -16,6 +16,10 @@ class Settings(BaseSettings):
     step_delay_max: int = Field(default=8, ge=1, description="Maximum delay between steps (seconds)")
     steps_per_session: int = Field(default=100, ge=1, description="Steps before pause")
 
+    # Features
+    auto_fight_npc: bool = Field(default=True, description="Automatically fight NPCs")
+    auto_gather_materials: bool = Field(default=True, description="Automatically gather materials")
+
     # API endpoints
     api_base_url: str = Field(default="https://api.simple-mmo.com")
     web_base_url: str = Field(default="https://web.simple-mmo.com")

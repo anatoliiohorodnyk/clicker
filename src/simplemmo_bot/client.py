@@ -1,5 +1,6 @@
 """HTTP client for SimpleMMO API."""
 
+import re
 import random
 import logging
 from typing import Any
@@ -17,7 +18,7 @@ class TravelResult:
     """Result of a travel step."""
 
     success: bool
-    action: str  # step, npc, item, material, text, etc.
+    action: str  # step, npc, item, material, text, rate_limit, etc.
     message: str
     data: dict[str, Any]
     wait_time: int  # seconds to wait before next step
@@ -47,6 +48,12 @@ class SimpleMMOClient:
         "Sec-Fetch-Mode": "cors",
         "Sec-Fetch-Site": "same-site",
     }
+
+    # Regex patterns for parsing HTML responses
+    NPC_ATTACK_PATTERN = re.compile(r'/npcs/attack/(\d+)')
+    NPC_SPRITE_PATTERN = re.compile(r"/img/sprites/enemies/(\d+)\.png")
+    MATERIAL_GATHER_PATTERN = re.compile(r'/crafting/material/gather/(\d+)')
+    ITEM_PATTERN = re.compile(r'/item/(\d+)')
 
     def __init__(self, settings: Settings) -> None:
         """Initialize client with settings."""
@@ -121,9 +128,21 @@ class SimpleMMOClient:
 
     def _parse_travel_response(self, response: dict[str, Any]) -> TravelResult:
         """Parse the travel API response into structured result."""
-        # Check for captcha requirement
         text = response.get("text", "")
-        if "human verification" in text.lower() or "verify" in text.lower():
+        text_lower = text.lower()
+
+        # Extract wait time from response
+        wait_time = response.get("wait_time", response.get("nextwait", 5))
+        if isinstance(wait_time, str):
+            try:
+                wait_time = int(wait_time)
+            except ValueError:
+                wait_time = 5
+
+        # Note: "Woah steady on there" is just flavor text, not rate limiting
+
+        # Check for captcha/verification requirement
+        if "human verification" in text_lower or "verify" in text_lower or "i-am-not-a-bot" in text_lower:
             return TravelResult(
                 success=False,
                 action="captcha",
@@ -134,79 +153,128 @@ class SimpleMMOClient:
                 raw_response=response,
             )
 
-        # Extract common fields
-        wait_time = response.get("wait_time", response.get("nextwait", 5))
+        # Check for death
+        if "you're dead" in text_lower or "need to heal yourself" in text_lower:
+            return TravelResult(
+                success=False,
+                action="dead",
+                message="Character is dead - need to respawn",
+                data={},
+                wait_time=300,  # 5 minutes respawn
+                raw_response=response,
+            )
 
-        # Determine action type based on response
-        if response.get("npc_id") or response.get("is_npc"):
+        # Check for NPC encounter - parse from HTML
+        npc_match = self.NPC_ATTACK_PATTERN.search(text)
+        if npc_match:
+            npc_id = int(npc_match.group(1))
+            # Try to extract NPC name from text
+            npc_name = self._extract_text_content(text)
             return TravelResult(
                 success=True,
                 action="npc",
-                message=text or "NPC encountered",
+                message=f"NPC encountered: {npc_name}" if npc_name else "NPC encountered",
                 data={
-                    "npc_id": response.get("npc_id"),
-                    "npc_name": response.get("npc_name"),
-                    "level": response.get("level"),
+                    "npc_id": npc_id,
+                    "npc_name": npc_name,
                 },
                 wait_time=wait_time,
                 raw_response=response,
             )
 
-        if response.get("material") or response.get("material_id"):
+        # Also check for NPC by sprite image (backup detection)
+        sprite_match = self.NPC_SPRITE_PATTERN.search(text)
+        if sprite_match and "attack" in text_lower:
+            # Try to find the attack link
+            npc_match = self.NPC_ATTACK_PATTERN.search(text)
+            if npc_match:
+                npc_id = int(npc_match.group(1))
+                return TravelResult(
+                    success=True,
+                    action="npc",
+                    message="NPC encountered",
+                    data={"npc_id": npc_id},
+                    wait_time=wait_time,
+                    raw_response=response,
+                )
+
+        # Check for material - parse from HTML
+        material_match = self.MATERIAL_GATHER_PATTERN.search(text)
+        if material_match:
+            material_id = int(material_match.group(1))
+            material_name = self._extract_text_content(text)
             return TravelResult(
                 success=True,
                 action="material",
-                message=text or "Material found",
+                message=f"Material found: {material_name}" if material_name else "Material found",
                 data={
-                    "material_id": response.get("material_id"),
-                    "material_name": response.get("material_name", response.get("material")),
+                    "material_id": material_id,
+                    "material_name": material_name,
                 },
                 wait_time=wait_time,
                 raw_response=response,
             )
 
-        if response.get("item") or response.get("item_id"):
+        # Check for item
+        item_match = self.ITEM_PATTERN.search(text)
+        if item_match:
+            item_id = int(item_match.group(1))
+            item_name = self._extract_text_content(text)
             return TravelResult(
                 success=True,
                 action="item",
-                message=text or "Item found",
+                message=f"Item found: {item_name}" if item_name else "Item found",
                 data={
-                    "item_id": response.get("item_id"),
-                    "item_name": response.get("item_name", response.get("item")),
+                    "item_id": item_id,
+                    "item_name": item_name,
                 },
                 wait_time=wait_time,
                 raw_response=response,
             )
 
+        # Check for gold (from JSON fields)
         if response.get("gold"):
             return TravelResult(
                 success=True,
                 action="gold",
-                message=text or f"Found {response.get('gold')} gold",
+                message=f"Found {response.get('gold')} gold",
                 data={"gold": response.get("gold")},
                 wait_time=wait_time,
                 raw_response=response,
             )
 
+        # Check for XP (from JSON fields)
         if response.get("exp") or response.get("xp"):
+            exp = response.get("exp", response.get("xp"))
             return TravelResult(
                 success=True,
                 action="exp",
-                message=text or f"Gained {response.get('exp', response.get('xp'))} XP",
-                data={"exp": response.get("exp", response.get("xp"))},
+                message=f"Gained {exp} XP",
+                data={"exp": exp},
                 wait_time=wait_time,
                 raw_response=response,
             )
 
-        # Default: regular step
+        # Default: regular step with flavor text
+        clean_text = self._extract_text_content(text)
         return TravelResult(
             success=True,
             action="step",
-            message=text or "Step taken",
+            message=clean_text[:100] if clean_text else "Step taken",
             data=response,
             wait_time=wait_time,
             raw_response=response,
         )
+
+    def _extract_text_content(self, html: str) -> str:
+        """Extract readable text content from HTML, removing tags."""
+        if not html:
+            return ""
+        # Remove HTML tags
+        clean = re.sub(r'<[^>]+>', ' ', html)
+        # Remove extra whitespace
+        clean = re.sub(r'\s+', ' ', clean).strip()
+        return clean
 
     def attack_npc(self, npc_id: int) -> dict[str, Any]:
         """
@@ -220,16 +288,28 @@ class SimpleMMOClient:
         """
         d_1, d_2 = self._generate_coordinates()
 
-        data = {
-            "api_token": self.settings.simplemmo_api_token,
-            "npc_id": str(npc_id),
-            "d_1": str(d_1),
-            "d_2": str(d_2),
-        }
-
+        # First, navigate to the NPC attack page
         try:
+            # Get the attack page
+            attack_url = f"/npcs/attack/{npc_id}"
+            response = self._client.get(
+                attack_url.replace("/npcs", ""),
+                headers={
+                    **self.DEFAULT_HEADERS,
+                    "Referer": "https://web.simple-mmo.com/travel",
+                },
+            )
+
+            # Now perform the actual attack
+            data = {
+                "api_token": self.settings.simplemmo_api_token,
+                "npc_id": str(npc_id),
+                "d_1": str(d_1),
+                "d_2": str(d_2),
+            }
+
             response = self._client.post(
-                "/api/npc/attack",
+                "/api/npcs/attack",
                 data=data,
             )
             response.raise_for_status()
@@ -238,7 +318,7 @@ class SimpleMMOClient:
             return result
 
         except Exception as e:
-            logger.error(f"Error attacking NPC: {e}")
+            logger.error(f"Error attacking NPC {npc_id}: {e}")
             return {"success": False, "error": str(e)}
 
     def gather_material(self, material_id: int) -> dict[str, Any]:
@@ -262,7 +342,7 @@ class SimpleMMOClient:
 
         try:
             response = self._client.post(
-                "/api/material/gather",
+                "/api/crafting/material/gather",
                 data=data,
             )
             response.raise_for_status()
@@ -271,5 +351,5 @@ class SimpleMMOClient:
             return result
 
         except Exception as e:
-            logger.error(f"Error gathering material: {e}")
+            logger.error(f"Error gathering material {material_id}: {e}")
             return {"success": False, "error": str(e)}
