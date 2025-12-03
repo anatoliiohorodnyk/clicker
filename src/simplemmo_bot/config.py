@@ -9,8 +9,11 @@ class Settings(BaseSettings):
 
     # API credentials
     simplemmo_api_token: str = Field(..., description="SimpleMMO API token from browser")
-    simplemmo_session_cookie: str = Field(default="", description="SimpleMMO session cookie for web auth")
     gemini_api_key: str = Field(..., description="Google Gemini API key for captcha")
+
+    # Session cookies for web auth (captcha)
+    simplemmo_laravel_session: str = Field(default="", description="Laravel session cookie")
+    simplemmo_xsrf_token: str = Field(default="", description="XSRF token cookie")
 
     # Bot behavior
     step_delay_min: int = Field(default=3, ge=1, description="Minimum delay between steps (seconds)")

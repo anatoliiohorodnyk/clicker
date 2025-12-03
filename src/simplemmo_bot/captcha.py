@@ -38,10 +38,12 @@ class CaptchaSolver:
         genai.configure(api_key=settings.gemini_api_key)
         self.model = genai.GenerativeModel("gemini-1.5-flash")
 
-        # Setup cookies for web authentication
+        # Setup cookies for web authentication (Laravel app)
         cookies = {}
-        if settings.simplemmo_session_cookie:
-            cookies["token"] = settings.simplemmo_session_cookie
+        if settings.simplemmo_laravel_session:
+            cookies["laravel_session"] = settings.simplemmo_laravel_session
+        if settings.simplemmo_xsrf_token:
+            cookies["XSRF-TOKEN"] = settings.simplemmo_xsrf_token
 
         self._http_client = httpx.Client(
             timeout=30.0,
