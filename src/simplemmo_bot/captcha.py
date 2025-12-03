@@ -87,12 +87,13 @@ class CaptchaSolver:
             logger.error(f"Failed to download image from {url}: {e}")
             return None
 
-    def _get_captcha_page(self) -> tuple[str | None, str | None, str | None]:
+    def _get_captcha_page(self) -> tuple[str | None, list[str] | None]:
         """
-        Fetch the captcha page and extract prompt, CSRF token, and form action.
+        Fetch the captcha page and extract prompt and image hashes.
 
         Returns:
-            Tuple of (prompt, csrf_token, form_action) or (None, None, None) if failed.
+            Tuple of (prompt, image_hashes) or (None, None) if failed.
+            image_hashes is a list of 4 bcrypt hashes corresponding to images 0-3.
         """
         try:
             response = self._http_client.get(self.CAPTCHA_PAGE_URL)
@@ -102,55 +103,49 @@ class CaptchaSolver:
             # Store for debugging
             self._last_captcha_html = html
 
-            # Extract CSRF token
-            csrf_match = re.search(r'name="_token"\s+value="([^"]+)"', html)
-            if not csrf_match:
-                csrf_match = re.search(r'<meta name="csrf-token" content="([^"]+)"', html)
-            csrf_token = csrf_match.group(1) if csrf_match else None
-            if csrf_token:
-                logger.debug(f"Found CSRF token: {csrf_token[:20]}...")
+            # Extract image hashes from onclick handlers
+            # Pattern: chooseItem('$2y$10$...', false)
+            hash_pattern = re.compile(r"chooseItem\('(\$2y\$10\$[^']+)',\s*false\)")
+            matches = hash_pattern.findall(html)
 
-            # Extract form action
-            form_match = re.search(r'<form[^>]*action="([^"]+)"[^>]*>', html)
-            form_action = form_match.group(1) if form_match else None
-            if form_action:
-                logger.debug(f"Found form action: {form_action}")
+            # Get first 4 unique hashes (the visible buttons)
+            image_hashes = matches[:4] if len(matches) >= 4 else None
 
-            # Look for onclick handlers on images (common in captcha)
-            onclick_match = re.search(r'onclick="[^"]*(/i-am-not-a-bot[^"\']*)"', html)
-            if onclick_match and not form_action:
-                form_action = onclick_match.group(1)
-                logger.debug(f"Found onclick action: {form_action}")
+            if image_hashes:
+                logger.debug(f"Found {len(image_hashes)} image hashes")
+            else:
+                logger.warning("Could not extract image hashes from page")
 
             # Extract prompt from the page
             prompt = None
-            patterns = [
-                r'Select the image[^<]*that shows[^<]*?([^<]+)',
-                r'text-2xl[^>]*>([^<]+)<',
-                r'<h[12][^>]*>([^<]*Select[^<]*)<',
-            ]
 
-            for pattern in patterns:
-                match = re.search(pattern, html, re.IGNORECASE)
-                if match:
-                    prompt = match.group(1).strip()
-                    if prompt:
-                        logger.info(f"Captcha prompt: {prompt}")
-                        break
+            # Look for the specific div with text-2xl class containing the item name
+            prompt_match = re.search(r'<div class="text-2xl[^"]*"[^>]*>([^<]+)</div>', html)
+            if prompt_match:
+                prompt = prompt_match.group(1).strip()
 
             if not prompt:
-                heading_match = re.search(r'<h\d[^>]*class="[^"]*text-2xl[^"]*"[^>]*>([^<]+)', html)
-                if heading_match:
-                    prompt = heading_match.group(1).strip()
+                patterns = [
+                    r'text-2xl[^>]*font-semibold[^>]*>([^<]+)<',
+                    r'Select the image[^<]*that shows[^<]*?([^<]+)',
+                ]
+                for pattern in patterns:
+                    match = re.search(pattern, html, re.IGNORECASE)
+                    if match:
+                        prompt = match.group(1).strip()
+                        if prompt:
+                            break
 
-            if not prompt:
+            if prompt:
+                logger.info(f"Captcha prompt: {prompt}")
+            else:
                 logger.warning("Could not extract captcha prompt from page")
 
-            return prompt, csrf_token, form_action
+            return prompt, image_hashes
 
         except Exception as e:
             logger.error(f"Error fetching captcha page: {e}")
-            return None, None, None
+            return None, None
 
     def solve_captcha(self) -> tuple[int | None, str | None]:
         """
@@ -161,12 +156,15 @@ class CaptchaSolver:
         """
         logger.info("Starting captcha solving process...")
 
-        # Get the prompt, CSRF token, and form action
-        prompt, csrf_token, form_action = self._get_captcha_page()
+        # Get the prompt and image hashes
+        prompt, image_hashes = self._get_captcha_page()
 
-        # Store for submission
-        self._csrf_token = csrf_token
-        self._form_action = form_action
+        # Store hashes for submission
+        self._image_hashes = image_hashes
+
+        if not image_hashes:
+            logger.error("Failed to extract image hashes from captcha page")
+            return None, prompt
 
         if not prompt:
             prompt = "the item that is different from the others"
@@ -245,7 +243,7 @@ No explanation, just the number."""
 
     def submit_captcha_answer(self, answer: int) -> bool:
         """
-        Submit the captcha answer.
+        Submit the captcha answer to the bot verification API.
 
         Args:
             answer: The selected image (1-4).
@@ -254,63 +252,73 @@ No explanation, just the number."""
             True if submission was successful, False otherwise.
         """
         try:
-            # The answer is 0-indexed for the API (0, 1, 2, 3)
+            # The answer is 0-indexed (0, 1, 2, 3)
             answer_index = answer - 1
 
-            # Build form data
-            data = {
-                "answer": str(answer_index),
+            # Get the hash for the selected image
+            if not hasattr(self, '_image_hashes') or not self._image_hashes:
+                logger.error("No image hashes available for submission")
+                return False
+
+            if answer_index < 0 or answer_index >= len(self._image_hashes):
+                logger.error(f"Invalid answer index: {answer_index}")
+                return False
+
+            selected_hash = self._image_hashes[answer_index]
+            logger.debug(f"Selected hash for image {answer}: {selected_hash[:30]}...")
+
+            # Build JSON payload matching the browser request
+            import random
+            payload = {
+                "data": selected_hash,
+                "x": random.randint(500, 700),
+                "y": random.randint(300, 500),
+                "valid": False,
             }
 
-            # Add CSRF token if available
-            if hasattr(self, '_csrf_token') and self._csrf_token:
-                data["_token"] = self._csrf_token
-                logger.debug("Including CSRF token in submission")
-
-            # Determine submission URL
-            if hasattr(self, '_form_action') and self._form_action:
-                if self._form_action.startswith('http'):
-                    submit_url = self._form_action
-                else:
-                    submit_url = f"https://web.simple-mmo.com{self._form_action}"
-                logger.debug(f"Using form action URL: {submit_url}")
-            else:
-                # Try POST to the same page (common Laravel pattern)
-                submit_url = self.CAPTCHA_PAGE_URL
-                logger.debug(f"Using captcha page URL: {submit_url}")
+            # Submit to the bot verification API
+            submit_url = "https://web.simple-mmo.com/api/bot-verification"
 
             response = self._http_client.post(
                 submit_url,
-                data=data,
+                json=payload,
                 headers={
                     **self.HEADERS,
-                    "Content-Type": "application/x-www-form-urlencoded",
-                    "Referer": self.CAPTCHA_PAGE_URL,
+                    "Accept": "*/*",
+                    "Content-Type": "application/json",
+                    "Origin": "https://web.simple-mmo.com",
+                    "Referer": f"{self.CAPTCHA_PAGE_URL}?new_page=true",
                 },
             )
 
-            logger.debug(f"Captcha submission response: status={response.status_code}, url={response.url}")
+            logger.debug(f"Captcha submission response: status={response.status_code}")
 
-            # Check if successful - could be 200 or redirect (302/303)
-            if response.status_code in (200, 302, 303):
-                # Check if redirected away from captcha page (success)
-                if "i-am-not-a-bot" not in str(response.url):
-                    logger.info("Captcha answer submitted successfully (redirected)")
+            if response.status_code == 200:
+                try:
+                    result = response.json()
+                    logger.debug(f"Captcha API response: {result}")
+
+                    # Check for success in response
+                    if result.get("success") or result.get("result") == "success":
+                        logger.info("Captcha verified successfully!")
+                        return True
+                    elif result.get("error") or result.get("result") == "error":
+                        logger.warning(f"Captcha verification failed: {result}")
+                        return False
+                    else:
+                        # Assume success if no error
+                        logger.info("Captcha submission completed")
+                        return True
+                except Exception:
+                    # If response is not JSON, check text
+                    if "success" in response.text.lower():
+                        logger.info("Captcha verified successfully!")
+                        return True
+                    logger.info("Captcha submission completed (non-JSON response)")
                     return True
-                # Check response content for success indicators
-                if "success" in response.text.lower() or "verified" in response.text.lower():
-                    logger.info("Captcha answer submitted successfully")
-                    return True
-                # Check if still on captcha page (failure)
-                if "i-am-not-a-bot" in response.text:
-                    logger.warning("Still on captcha page after submission - answer may be wrong")
-                    return False
-                logger.info("Captcha submission completed")
-                return True
             else:
                 logger.warning(f"Captcha submission returned status {response.status_code}")
-                # Log response for debugging
-                logger.debug(f"Response content: {response.text[:500]}")
+                logger.debug(f"Response: {response.text[:500]}")
                 return False
 
         except Exception as e:
