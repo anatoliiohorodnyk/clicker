@@ -41,7 +41,7 @@ class CaptchaSolver:
         # Setup cookies for web authentication (Laravel app)
         cookies = {}
         if settings.simplemmo_laravel_session:
-            cookies["laravel_session"] = settings.simplemmo_laravel_session
+            cookies["laravelsession"] = settings.simplemmo_laravel_session
             logger.info(f"Laravel session cookie set (length: {len(settings.simplemmo_laravel_session)})")
         if settings.simplemmo_xsrf_token:
             cookies["XSRF-TOKEN"] = settings.simplemmo_xsrf_token
