@@ -206,6 +206,14 @@ class TravelBot:
 
                 self.stats.steps_taken += 1
 
+                # Always accumulate gold and exp from every response
+                step_gold = result.data.get("gold", 0)
+                step_exp = result.data.get("exp", 0)
+                if step_gold:
+                    self.stats.gold_earned += step_gold
+                if step_exp:
+                    self.stats.exp_earned += step_exp
+
                 # Handle different action types
                 if result.action == "npc":
                     if self.settings.auto_fight_npc:
@@ -220,16 +228,13 @@ class TravelBot:
                 elif result.action == "item":
                     self.stats.items_found += 1
                     logger.info(f"Found item: {result.data.get('item_name', 'Unknown')}")
-                elif result.action == "gold":
-                    gold = result.data.get("gold", 0)
-                    self.stats.gold_earned += gold
-                elif result.action == "exp":
-                    exp = result.data.get("exp", 0)
-                    self.stats.exp_earned += exp
 
-                # Log progress
+                # Log progress every 10 steps with accumulated stats
                 if self.stats.steps_taken % 10 == 0:
-                    logger.info(f"Progress: {self.stats.steps_taken}/{max_steps} steps")
+                    logger.info(
+                        f"Progress: {self.stats.steps_taken}/{max_steps} steps | "
+                        f"Gold: {self.stats.gold_earned} | EXP: {self.stats.exp_earned}"
+                    )
 
                 # Callback
                 if self._on_step_callback:

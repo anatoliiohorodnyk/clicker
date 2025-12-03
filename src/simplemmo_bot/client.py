@@ -139,6 +139,38 @@ class SimpleMMOClient:
             except ValueError:
                 wait_time = 5
 
+        # Always extract gold and exp from response (they can be in any response)
+        gold = 0
+        exp = 0
+
+        # Check various possible field names for gold
+        if response.get("gold"):
+            try:
+                gold = int(response.get("gold", 0))
+            except (ValueError, TypeError):
+                gold = 0
+
+        # Check various possible field names for exp
+        if response.get("exp"):
+            try:
+                exp = int(response.get("exp", 0))
+            except (ValueError, TypeError):
+                exp = 0
+        elif response.get("xp"):
+            try:
+                exp = int(response.get("xp", 0))
+            except (ValueError, TypeError):
+                exp = 0
+
+        # Also try to parse gold/exp from text
+        gold_match = re.search(r'(\d+)\s*gold', text_lower)
+        if gold_match and gold == 0:
+            gold = int(gold_match.group(1))
+
+        exp_match = re.search(r'(\d+)\s*(?:exp|xp)', text_lower)
+        if exp_match and exp == 0:
+            exp = int(exp_match.group(1))
+
         # Note: "Woah steady on there" is just flavor text, not rate limiting
 
         # Check for captcha/verification requirement
@@ -177,6 +209,8 @@ class SimpleMMOClient:
                 data={
                     "npc_id": npc_id,
                     "npc_name": npc_name,
+                    "gold": gold,
+                    "exp": exp,
                 },
                 wait_time=wait_time,
                 raw_response=response,
@@ -193,7 +227,7 @@ class SimpleMMOClient:
                     success=True,
                     action="npc",
                     message="NPC encountered",
-                    data={"npc_id": npc_id},
+                    data={"npc_id": npc_id, "gold": gold, "exp": exp},
                     wait_time=wait_time,
                     raw_response=response,
                 )
@@ -210,6 +244,8 @@ class SimpleMMOClient:
                 data={
                     "material_id": material_id,
                     "material_name": material_name,
+                    "gold": gold,
+                    "exp": exp,
                 },
                 wait_time=wait_time,
                 raw_response=response,
@@ -227,41 +263,20 @@ class SimpleMMOClient:
                 data={
                     "item_id": item_id,
                     "item_name": item_name,
+                    "gold": gold,
+                    "exp": exp,
                 },
                 wait_time=wait_time,
                 raw_response=response,
             )
 
-        # Check for gold (from JSON fields)
-        if response.get("gold"):
-            return TravelResult(
-                success=True,
-                action="gold",
-                message=f"Found {response.get('gold')} gold",
-                data={"gold": response.get("gold")},
-                wait_time=wait_time,
-                raw_response=response,
-            )
-
-        # Check for XP (from JSON fields)
-        if response.get("exp") or response.get("xp"):
-            exp = response.get("exp", response.get("xp"))
-            return TravelResult(
-                success=True,
-                action="exp",
-                message=f"Gained {exp} XP",
-                data={"exp": exp},
-                wait_time=wait_time,
-                raw_response=response,
-            )
-
-        # Default: regular step with flavor text
+        # Default: regular step with flavor text (include any gold/exp found)
         clean_text = self._extract_text_content(text)
         return TravelResult(
             success=True,
             action="step",
             message=clean_text[:100] if clean_text else "Step taken",
-            data=response,
+            data={"gold": gold, "exp": exp, **response},
             wait_time=wait_time,
             raw_response=response,
         )
