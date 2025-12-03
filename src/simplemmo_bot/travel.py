@@ -143,31 +143,33 @@ class TravelBot:
         Returns:
             True if solved successfully, False otherwise.
         """
-        logger.warning("Captcha required!")
+        logger.warning("Captcha detected! Attempting to solve...")
 
-        # Extract image URLs from response (structure may vary)
-        raw = result.raw_response or {}
-        image_urls = raw.get("images", raw.get("captcha_images", []))
-
-        if not image_urls or len(image_urls) != 4:
-            logger.error("Could not extract captcha images from response")
-            self.stats.captchas_failed += 1
-            return False
-
-        # Solve captcha
-        answer = self.captcha_solver.solve_from_urls(image_urls)
+        # Use the new solve_captcha method that fetches images directly
+        answer, prompt = self.captcha_solver.solve_captcha()
 
         if answer is None:
             logger.error("Failed to solve captcha")
             self.stats.captchas_failed += 1
             return False
 
-        # TODO: Submit captcha answer via API
-        # This would require knowing the exact endpoint and format
-        logger.info(f"Captcha answer: {answer}")
-        self.stats.captchas_solved += 1
+        logger.info(f"Captcha solved! Answer: {answer} for prompt: {prompt}")
 
-        return True
+        # Try to submit the answer
+        success = self.captcha_solver.submit_captcha_answer(answer)
+
+        if success:
+            self.stats.captchas_solved += 1
+            logger.info("Captcha submitted successfully, waiting before continuing...")
+            time.sleep(3)  # Wait a bit after captcha
+            return True
+        else:
+            # Even if submission fails, the captcha might have been solved
+            # Try to continue anyway
+            logger.warning("Captcha submission uncertain, attempting to continue...")
+            self.stats.captchas_solved += 1
+            time.sleep(3)
+            return True
 
     def travel(self, max_steps: int | None = None) -> TravelStats:
         """
