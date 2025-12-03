@@ -144,14 +144,24 @@ class SimpleMMOClient:
         exp = 0
 
         # Check various possible field names for gold
-        if response.get("gold"):
+        if response.get("gold_amount"):
+            try:
+                gold = int(response.get("gold_amount", 0))
+            except (ValueError, TypeError):
+                gold = 0
+        elif response.get("gold"):
             try:
                 gold = int(response.get("gold", 0))
             except (ValueError, TypeError):
                 gold = 0
 
         # Check various possible field names for exp
-        if response.get("exp"):
+        if response.get("exp_amount"):
+            try:
+                exp = int(response.get("exp_amount", 0))
+            except (ValueError, TypeError):
+                exp = 0
+        elif response.get("exp"):
             try:
                 exp = int(response.get("exp", 0))
             except (ValueError, TypeError):
@@ -162,14 +172,9 @@ class SimpleMMOClient:
             except (ValueError, TypeError):
                 exp = 0
 
-        # Also try to parse gold/exp from text
-        gold_match = re.search(r'(\d+)\s*gold', text_lower)
-        if gold_match and gold == 0:
-            gold = int(gold_match.group(1))
-
-        exp_match = re.search(r'(\d+)\s*(?:exp|xp)', text_lower)
-        if exp_match and exp == 0:
-            exp = int(exp_match.group(1))
+        # Log gold/exp for debugging
+        if gold > 0 or exp > 0:
+            logger.debug(f"Step rewards: gold={gold}, exp={exp}")
 
         # Note: "Woah steady on there" is just flavor text, not rate limiting
 
