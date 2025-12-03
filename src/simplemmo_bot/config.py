@@ -9,6 +9,7 @@ class Settings(BaseSettings):
 
     # API credentials
     simplemmo_api_token: str = Field(..., description="SimpleMMO API token from browser")
+    simplemmo_session_cookie: str = Field(default="", description="SimpleMMO session cookie for web auth")
     gemini_api_key: str = Field(..., description="Google Gemini API key for captcha")
 
     # Bot behavior

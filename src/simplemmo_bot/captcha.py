@@ -37,9 +37,16 @@ class CaptchaSolver:
         self.settings = settings
         genai.configure(api_key=settings.gemini_api_key)
         self.model = genai.GenerativeModel("gemini-1.5-flash")
+
+        # Setup cookies for web authentication
+        cookies = {}
+        if settings.simplemmo_session_cookie:
+            cookies["token"] = settings.simplemmo_session_cookie
+
         self._http_client = httpx.Client(
             timeout=30.0,
             headers=self.HEADERS,
+            cookies=cookies,
             follow_redirects=True,
         )
 
