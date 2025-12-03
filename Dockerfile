@@ -9,6 +9,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy source code
 COPY src/ ./src/
 
+# Set Python path to find the module
+ENV PYTHONPATH=/app/src
+
 # Create non-root user for security
 RUN useradd --create-home --shell /bin/bash botuser
 USER botuser
