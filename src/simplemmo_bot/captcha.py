@@ -42,8 +42,13 @@ class CaptchaSolver:
         cookies = {}
         if settings.simplemmo_laravel_session:
             cookies["laravel_session"] = settings.simplemmo_laravel_session
+            logger.info(f"Laravel session cookie set (length: {len(settings.simplemmo_laravel_session)})")
         if settings.simplemmo_xsrf_token:
             cookies["XSRF-TOKEN"] = settings.simplemmo_xsrf_token
+            logger.info(f"XSRF token cookie set (length: {len(settings.simplemmo_xsrf_token)})")
+
+        if not cookies:
+            logger.warning("No session cookies configured! Captcha solving will likely fail.")
 
         self._http_client = httpx.Client(
             timeout=30.0,
@@ -67,6 +72,16 @@ class CaptchaSolver:
         try:
             response = self._http_client.get(url)
             response.raise_for_status()
+
+            # Debug: log response info
+            content_type = response.headers.get("content-type", "unknown")
+            logger.debug(f"Image response: status={response.status_code}, type={content_type}, size={len(response.content)}")
+
+            # Check if we got HTML instead of image (auth redirect)
+            if "text/html" in content_type:
+                logger.error(f"Got HTML instead of image - likely auth issue. First 200 chars: {response.text[:200]}")
+                return None
+
             return Image.open(BytesIO(response.content))
         except Exception as e:
             logger.error(f"Failed to download image from {url}: {e}")
