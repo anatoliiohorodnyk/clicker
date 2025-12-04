@@ -1,6 +1,7 @@
 """HTTP client for SimpleMMO API."""
 
 import re
+import time
 import random
 import logging
 from typing import Any
@@ -11,6 +12,24 @@ import httpx
 from .config import Settings
 
 logger = logging.getLogger(__name__)
+
+
+def human_delay(base: float = 1.0, std: float = 0.15, min_delay: float = 0.8) -> None:
+    """
+    Sleep for a human-like random duration using normal distribution.
+
+    Args:
+        base: Mean delay in seconds
+        std: Standard deviation
+        min_delay: Minimum delay (floor)
+    """
+    delay = max(min_delay, random.gauss(base, std))
+
+    # 5% chance of a "thinking" pause (human got distracted)
+    if random.random() < 0.05:
+        delay += random.uniform(1.0, 3.0)
+
+    time.sleep(delay)
 
 
 @dataclass
@@ -424,9 +443,8 @@ class SimpleMMOClient:
                     logger.info(f"Lost to NPC after {attack_count} attacks")
                     break
 
-                # Delay between attacks (1-1.2 seconds)
-                import time
-                time.sleep(1.0 + random.random() * 0.2)
+                # Human-like delay between attacks
+                human_delay(base=1.1, std=0.15, min_delay=0.8)
 
             return final_result
 
@@ -451,8 +469,6 @@ class SimpleMMOClient:
         Returns:
             Gather result dictionary with total exp gained and gather count.
         """
-        import time
-
         try:
             # Step 1: Load the gather page to get the signed API URL
             gather_page_url = f"https://web.simple-mmo.com/crafting/material/gather/{material_id}?new_page=true"
@@ -571,8 +587,8 @@ class SimpleMMOClient:
                     logger.warning(f"Gather failed: {result}")
                     break
 
-                # Delay between gathers (1-1.2 seconds)
-                time.sleep(1.0 + random.random() * 0.2)
+                # Human-like delay between gathers
+                human_delay(base=1.1, std=0.15, min_delay=0.8)
 
             # Add totals to final result
             final_result["total_player_exp"] = total_player_exp

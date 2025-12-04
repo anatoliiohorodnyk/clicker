@@ -250,10 +250,17 @@ class TravelBot:
         self._running = True
         self.stats = TravelStats()
 
+        # Set up break schedule
+        next_break_at = random.randint(
+            self.settings.break_interval_min,
+            self.settings.break_interval_max
+        )
+
         if max_steps == 0:
             logger.info("Starting travel session (infinite mode)")
         else:
             logger.info(f"Starting travel session (max {max_steps} steps)")
+        logger.info(f"Next break scheduled at step {next_break_at}")
 
         while self._running and (max_steps == 0 or self.stats.steps_taken < max_steps):
             try:
@@ -273,6 +280,22 @@ class TravelBot:
                     continue
 
                 self.stats.steps_taken += 1
+
+                # Check if it's time for a break
+                if self.stats.steps_taken >= next_break_at:
+                    break_duration = random.randint(
+                        self.settings.break_duration_min,
+                        self.settings.break_duration_max
+                    )
+                    logger.info(f"☕ Taking a break for {break_duration // 60}m {break_duration % 60}s...")
+                    time.sleep(break_duration)
+
+                    # Schedule next break
+                    next_break_at = self.stats.steps_taken + random.randint(
+                        self.settings.break_interval_min,
+                        self.settings.break_interval_max
+                    )
+                    logger.info(f"Break finished! Next break at step {next_break_at}")
 
                 # Always accumulate gold and exp from every response
                 step_gold = result.data.get("gold", 0)
