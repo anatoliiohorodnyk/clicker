@@ -423,25 +423,32 @@ class SimpleMMOClient:
                 final_result = result
 
                 # Check if battle is finished
-                opponent_hp = result.get("opponent_hp", 0)
-                player_hp = result.get("player_hp", 0)
+                # Handle None values (can happen if player dies mid-battle)
+                opponent_hp = result.get("opponent_hp")
+                player_hp = result.get("player_hp")
                 battle_result = result.get("result")
                 has_rewards = "rewards" in result and result["rewards"]
 
                 # Battle ends when we have a result field or rewards
                 if battle_result is not None or has_rewards:
-                    if opponent_hp <= 0 or battle_result == "win":
+                    if battle_result == "win" or (opponent_hp is not None and opponent_hp <= 0):
                         final_result["win"] = True
                         logger.info(f"NPC defeated after {attack_count} attacks!")
                     else:
                         final_result["win"] = False
                         logger.info(f"Lost to NPC after {attack_count} attacks")
                     break
-                elif player_hp <= 0:
+                elif player_hp is not None and player_hp <= 0:
                     # Player died
                     final_result["win"] = False
                     logger.info(f"Lost to NPC after {attack_count} attacks")
                     break
+                elif player_hp is None and opponent_hp is None:
+                    # Both HP are None - likely an error state, check for death message
+                    if result.get("message") or result.get("error"):
+                        logger.warning(f"Battle ended unexpectedly: {result}")
+                        final_result["win"] = False
+                        break
 
                 # Human-like delay between attacks
                 human_delay(base=1.1, std=0.15, min_delay=0.8)
