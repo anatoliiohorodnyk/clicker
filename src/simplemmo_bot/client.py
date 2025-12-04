@@ -450,6 +450,9 @@ class SimpleMMOClient:
 
         except httpx.HTTPStatusError as e:
             logger.error(f"HTTP error attacking NPC {npc_id}: {e.response.status_code}")
+            # Debug: show response body for 404 errors
+            if e.response.status_code == 404:
+                logger.debug(f"404 response body (first 500 chars): {e.response.text[:500]}")
             return {"success": False, "error": f"HTTP {e.response.status_code}"}
         except Exception as e:
             logger.error(f"Error attacking NPC {npc_id}: {e}")
