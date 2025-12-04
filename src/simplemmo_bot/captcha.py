@@ -112,18 +112,41 @@ class CaptchaSolver:
                 return None, None
 
             # Extract image hashes from onclick handlers
-            # Pattern: chooseItem('$2y$10$...', false)
-            hash_pattern = re.compile(r"chooseItem\('(\$2y\$10\$[^']+)',\s*false\)")
-            matches = hash_pattern.findall(html)
+            # Try multiple patterns for different captcha versions
+            hash_patterns = [
+                # Pattern 1: chooseItem('$2y$10$...', false)
+                re.compile(r"chooseItem\('(\$2y\$10\$[^']+)',\s*false\)"),
+                # Pattern 2: chooseItem("$2y$10$...", false) - with double quotes
+                re.compile(r'chooseItem\("(\$2y\$10\$[^"]+)",\s*false\)'),
+                # Pattern 3: data attribute with hash
+                re.compile(r'data-hash="(\$2y\$10\$[^"]+)"'),
+                # Pattern 4: any $2y$10$ hash in single quotes
+                re.compile(r"'(\$2y\$10\$[^']{50,})'"),
+                # Pattern 5: any $2y$10$ hash in double quotes
+                re.compile(r'"(\$2y\$10\$[^"]{50,})"'),
+            ]
 
-            # Get first 4 unique hashes (the visible buttons)
-            image_hashes = matches[:4] if len(matches) >= 4 else None
+            image_hashes = None
+            for i, pattern in enumerate(hash_patterns):
+                matches = pattern.findall(html)
+                if len(matches) >= 4:
+                    image_hashes = matches[:4]
+                    logger.debug(f"Found {len(image_hashes)} image hashes using pattern {i+1}")
+                    break
 
-            if image_hashes:
-                logger.debug(f"Found {len(image_hashes)} image hashes")
-            else:
+            if not image_hashes:
                 logger.warning("Could not extract image hashes from page")
-                logger.debug(f"Page content (first 1000 chars): {html[:1000]}")
+                # Debug: look for any chooseItem or hash-like patterns
+                if "chooseItem" in html:
+                    logger.debug("Found 'chooseItem' in page, but pattern didn't match")
+                    # Find context around chooseItem
+                    idx = html.find("chooseItem")
+                    logger.debug(f"chooseItem context: {html[max(0,idx-20):idx+100]}")
+                if "$2y$" in html:
+                    logger.debug("Found '$2y$' hash pattern in page")
+                else:
+                    logger.debug("No '$2y$' hash found in page - might be different captcha type")
+                logger.debug(f"Page content (first 2000 chars): {html[:2000]}")
 
             # Extract prompt from the page
             prompt = None
