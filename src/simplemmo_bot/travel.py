@@ -2,6 +2,7 @@
 
 import logging
 import random
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Callable
@@ -95,6 +96,33 @@ class TravelBot:
         jitter = random.uniform(-0.5, 0.5)
         return max(1.0, base + jitter)
 
+    def _parse_npc_rewards(self, attack_result: dict) -> tuple[int, int]:
+        """Parse gold and exp from NPC battle rewards HTML.
+
+        Returns:
+            Tuple of (gold, exp)
+        """
+        gold = 0
+        exp = 0
+
+        rewards = attack_result.get("rewards", [])
+        if not rewards:
+            return gold, exp
+
+        for reward in rewards:
+            reward_str = str(reward)
+            # Parse EXP: "...>20,003 EXP"
+            exp_match = re.search(r'>([\d,]+)\s*EXP', reward_str, re.IGNORECASE)
+            if exp_match:
+                exp = int(exp_match.group(1).replace(",", ""))
+
+            # Parse Gold: "...>1,952  Gold"
+            gold_match = re.search(r'>([\d,]+)\s*Gold', reward_str, re.IGNORECASE)
+            if gold_match:
+                gold = int(gold_match.group(1).replace(",", ""))
+
+        return gold, exp
+
     def _handle_npc(self, result: TravelResult) -> None:
         """Handle NPC encounter - attack the NPC."""
         npc_id = result.data.get("npc_id")
@@ -118,26 +146,15 @@ class TravelBot:
             self.stats.npcs_lost += 1
             return
 
-        # Determine win/loss - check various possible field names
+        # Determine win/loss
         won = (
-            attack_result.get("result") == "win"
+            attack_result.get("type") == "success"
             or attack_result.get("win") is True
-            or attack_result.get("success") is True
-            or attack_result.get("victory") is True
-            or "you win" in str(attack_result.get("text", "")).lower()
-            or "победа" in str(attack_result.get("text", "")).lower()
+            or attack_result.get("opponent_hp", 1) <= 0
         )
 
-        # Extract gold and exp using correct field names
-        gold = attack_result.get("gold_amount", attack_result.get("gold", 0)) or 0
-        exp = attack_result.get("exp_amount", attack_result.get("exp", 0)) or 0
-
-        try:
-            gold = int(gold)
-            exp = int(exp)
-        except (ValueError, TypeError):
-            gold = 0
-            exp = 0
+        # Parse gold and exp from rewards HTML
+        gold, exp = self._parse_npc_rewards(attack_result)
 
         if won:
             self.stats.npcs_won += 1
