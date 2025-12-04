@@ -1,6 +1,7 @@
 """Captcha solver using Google Gemini Vision API."""
 
 import re
+import time
 import logging
 from io import BytesIO
 from pathlib import Path
@@ -197,9 +198,8 @@ class CaptchaSolver:
         Returns:
             Index 1-4 of the correct image, or None if failed.
         """
-        try:
-            # Build the prompt for Gemini
-            gemini_prompt = f"""You are solving a SimpleMMO captcha.
+        # Build the prompt for Gemini
+        gemini_prompt = f"""You are solving a SimpleMMO captcha.
 
 The task is: "{prompt}"
 
@@ -214,32 +214,49 @@ IMPORTANT:
 Respond with ONLY a single digit: 1, 2, 3, or 4
 No explanation, just the number."""
 
-            # Prepare content for Gemini
-            content = [gemini_prompt]
+        # Prepare content for Gemini
+        content = [gemini_prompt]
 
-            for i, img in enumerate(images, 1):
-                content.append(f"\n\nImage {i}:")
-                content.append(img)
+        for i, img in enumerate(images, 1):
+            content.append(f"\n\nImage {i}:")
+            content.append(img)
 
-            # Send to Gemini
-            response = self.model.generate_content(content)
-            answer = response.text.strip()
+        # Retry logic for rate limits (429 errors)
+        max_retries = 3
+        retry_delays = [30, 60, 120]  # seconds
 
-            logger.debug(f"Gemini raw response: {answer}")
+        for attempt in range(max_retries + 1):
+            try:
+                # Send to Gemini
+                response = self.model.generate_content(content)
+                answer = response.text.strip()
 
-            # Parse response - expect single digit 1-4
-            for char in answer:
-                if char in "1234":
-                    result = int(char)
-                    logger.info(f"Captcha solved: selected image {result}")
-                    return result
+                logger.debug(f"Gemini raw response: {answer}")
 
-            logger.warning(f"Could not parse Gemini response: {answer}")
-            return None
+                # Parse response - expect single digit 1-4
+                for char in answer:
+                    if char in "1234":
+                        result = int(char)
+                        logger.info(f"Captcha solved: selected image {result}")
+                        return result
 
-        except Exception as e:
-            logger.error(f"Error solving captcha with Gemini: {e}")
-            return None
+                logger.warning(f"Could not parse Gemini response: {answer}")
+                return None
+
+            except Exception as e:
+                error_str = str(e)
+                is_rate_limit = "429" in error_str or "Resource exhausted" in error_str
+
+                if is_rate_limit and attempt < max_retries:
+                    delay = retry_delays[attempt]
+                    logger.warning(f"Gemini rate limited, waiting {delay}s before retry {attempt + 1}/{max_retries}...")
+                    time.sleep(delay)
+                    continue
+
+                logger.error(f"Error solving captcha with Gemini: {e}")
+                return None
+
+        return None
 
     def submit_captcha_answer(self, answer: int) -> bool:
         """

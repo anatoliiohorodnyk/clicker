@@ -269,8 +269,8 @@ class TravelBot:
 
                 if result.captcha_required:
                     if not self._handle_captcha(result):
-                        logger.error("Captcha failed, stopping")
-                        break
+                        logger.warning("Captcha failed, waiting 60s before retry...")
+                        time.sleep(60)
                     continue
 
                 if not result.success:
