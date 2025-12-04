@@ -104,6 +104,13 @@ class CaptchaSolver:
             # Store for debugging
             self._last_captcha_html = html
 
+            # Debug: log page info
+            logger.debug(f"Captcha page status: {response.status_code}, length: {len(html)}")
+            if "login" in html.lower() or "sign in" in html.lower():
+                logger.error("Captcha page appears to be a login redirect!")
+                logger.debug(f"Page content (first 500 chars): {html[:500]}")
+                return None, None
+
             # Extract image hashes from onclick handlers
             # Pattern: chooseItem('$2y$10$...', false)
             hash_pattern = re.compile(r"chooseItem\('(\$2y\$10\$[^']+)',\s*false\)")
@@ -116,6 +123,7 @@ class CaptchaSolver:
                 logger.debug(f"Found {len(image_hashes)} image hashes")
             else:
                 logger.warning("Could not extract image hashes from page")
+                logger.debug(f"Page content (first 1000 chars): {html[:1000]}")
 
             # Extract prompt from the page
             prompt = None
