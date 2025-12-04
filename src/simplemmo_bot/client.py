@@ -58,10 +58,20 @@ class SimpleMMOClient:
     def __init__(self, settings: Settings) -> None:
         """Initialize client with settings."""
         self.settings = settings
+
+        # Build cookies dict from settings
+        cookies = {}
+        if settings.simplemmo_laravel_session:
+            cookies["laravelsession"] = settings.simplemmo_laravel_session
+        if settings.simplemmo_xsrf_token:
+            cookies["XSRF-TOKEN"] = settings.simplemmo_xsrf_token
+
         self._client = httpx.Client(
             base_url=settings.api_base_url,
             headers=self.DEFAULT_HEADERS,
+            cookies=cookies if cookies else None,
             timeout=30.0,
+            follow_redirects=False,  # Don't auto-follow redirects so we can detect auth issues
         )
 
     def close(self) -> None:
@@ -311,15 +321,26 @@ class SimpleMMOClient:
             attack_page_url = f"https://web.simple-mmo.com/npcs/attack/{npc_id}?new_page=true"
             logger.debug(f"Loading NPC attack page: {attack_page_url}")
 
+            # Build headers with XSRF token if available
+            page_headers = {
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Referer": "https://web.simple-mmo.com/travel?new_page=true",
+                "User-Agent": self.DEFAULT_HEADERS["User-Agent"],
+            }
+            if self.settings.simplemmo_xsrf_token:
+                page_headers["X-XSRF-TOKEN"] = self.settings.simplemmo_xsrf_token
+
             page_response = self._client.get(
                 attack_page_url,
-                headers={
-                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                    "Accept-Language": "en-US,en;q=0.9",
-                    "Referer": "https://web.simple-mmo.com/travel?new_page=true",
-                    "User-Agent": self.DEFAULT_HEADERS["User-Agent"],
-                },
+                headers=page_headers,
             )
+
+            # Check for redirect (authentication issue)
+            if page_response.status_code in (301, 302, 303, 307, 308):
+                logger.error(f"Got redirect {page_response.status_code} - likely missing/expired session cookies")
+                return {"success": False, "error": "Session expired - update SIMPLEMMO_LARAVEL_SESSION cookie"}
+
             page_response.raise_for_status()
             html = page_response.text
 
@@ -348,17 +369,21 @@ class SimpleMMOClient:
                 "special_attack": False,
             }
 
+            attack_headers = {
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.settings.simplemmo_api_token}",
+                "Origin": "https://web.simple-mmo.com",
+                "Referer": attack_page_url,
+                "User-Agent": self.DEFAULT_HEADERS["User-Agent"],
+            }
+            if self.settings.simplemmo_xsrf_token:
+                attack_headers["X-XSRF-TOKEN"] = self.settings.simplemmo_xsrf_token
+
             attack_response = self._client.post(
                 attack_api_url,
                 json=attack_payload,
-                headers={
-                    "Accept": "application/json",
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {self.settings.simplemmo_api_token}",
-                    "Origin": "https://web.simple-mmo.com",
-                    "Referer": attack_page_url,
-                    "User-Agent": self.DEFAULT_HEADERS["User-Agent"],
-                },
+                headers=attack_headers,
             )
             attack_response.raise_for_status()
             result = attack_response.json()
