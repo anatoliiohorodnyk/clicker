@@ -365,7 +365,7 @@ class SimpleMMOClient:
             attack_api_url = f"https://web.simple-mmo.com/api/npcs/attack/{api_code}?expires={expires}&signature={signature}"
             logger.debug(f"Found attack API URL: {attack_api_url}")
 
-            # Step 3: Perform the attack with JSON body and Bearer auth
+            # Step 3: Attack in a loop until battle is finished
             attack_payload = {
                 "npc_id": npc_id,
                 "special_attack": False,
@@ -382,16 +382,48 @@ class SimpleMMOClient:
             if self.settings.simplemmo_xsrf_token:
                 attack_headers["X-XSRF-TOKEN"] = self.settings.simplemmo_xsrf_token
 
-            attack_response = self._client.post(
-                attack_api_url,
-                json=attack_payload,
-                headers=attack_headers,
-            )
-            attack_response.raise_for_status()
-            result = attack_response.json()
+            # Battle loop - attack until someone's HP reaches 0
+            attack_count = 0
+            max_attacks = 50  # Safety limit
+            final_result: dict[str, Any] = {}
 
-            logger.debug(f"NPC attack response: {result}")
-            return result
+            while attack_count < max_attacks:
+                attack_count += 1
+
+                attack_response = self._client.post(
+                    attack_api_url,
+                    json=attack_payload,
+                    headers=attack_headers,
+                )
+                attack_response.raise_for_status()
+                result = attack_response.json()
+
+                logger.debug(f"Attack #{attack_count}: player_hp={result.get('player_hp')}, opponent_hp={result.get('opponent_hp')}")
+
+                # Store the latest result
+                final_result = result
+
+                # Check if battle is finished
+                opponent_hp = result.get("opponent_hp", 0)
+                player_hp = result.get("player_hp", 0)
+                battle_result = result.get("result")
+
+                if opponent_hp <= 0:
+                    # Victory!
+                    final_result["win"] = True
+                    logger.info(f"NPC defeated after {attack_count} attacks!")
+                    break
+                elif player_hp <= 0 or battle_result is not None:
+                    # Defeat or battle ended
+                    final_result["win"] = False
+                    logger.info(f"Lost to NPC after {attack_count} attacks")
+                    break
+
+                # Small delay between attacks (0.3-0.6 seconds)
+                import time
+                time.sleep(0.3 + random.random() * 0.3)
+
+            return final_result
 
         except httpx.HTTPStatusError as e:
             logger.error(f"HTTP error attacking NPC {npc_id}: {e.response.status_code}")
