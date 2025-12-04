@@ -614,3 +614,45 @@ class SimpleMMOClient:
         except Exception as e:
             logger.error(f"Error gathering material {material_id}: {e}")
             return {"success": False, "error": str(e)}
+
+    def heal(self) -> dict[str, Any]:
+        """
+        Heal/respawn the character at the healer.
+
+        Returns:
+            Result dictionary with success status.
+        """
+        try:
+            heal_url = "https://web.simple-mmo.com/api/healer/heal"
+
+            headers = {
+                "Accept": "*/*",
+                "Content-Type": "application/json",
+                "Origin": "https://web.simple-mmo.com",
+                "Referer": "https://web.simple-mmo.com/healer?new_page_refresh=true",
+                "User-Agent": self.DEFAULT_HEADERS["User-Agent"],
+            }
+            if self.settings.simplemmo_xsrf_token:
+                headers["X-XSRF-TOKEN"] = self.settings.simplemmo_xsrf_token
+
+            response = self._client.post(
+                heal_url,
+                headers=headers,
+                content="",  # Empty body
+            )
+            response.raise_for_status()
+            result = response.json()
+
+            if result.get("type") == "success":
+                logger.info(f"💚 Healed: {result.get('result', 'Health restored')}")
+                return {"success": True, "message": result.get("result")}
+            else:
+                logger.warning(f"Heal response: {result}")
+                return {"success": False, "error": result.get("result", "Unknown error")}
+
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP error healing: {e.response.status_code}")
+            return {"success": False, "error": f"HTTP {e.response.status_code}"}
+        except Exception as e:
+            logger.error(f"Error healing: {e}")
+            return {"success": False, "error": str(e)}

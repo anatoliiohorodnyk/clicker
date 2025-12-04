@@ -28,6 +28,8 @@ class TravelStats:
     exp_earned: int = 0
     captchas_solved: int = 0
     captchas_failed: int = 0
+    deaths: int = 0
+    respawns: int = 0
     errors: int = 0
     start_time: float = field(default_factory=time.time)
 
@@ -55,6 +57,7 @@ class TravelStats:
             f"Items: {self.items_found}\n"
             f"Gold: {self.gold_earned}\n"
             f"EXP: {self.exp_earned}\n"
+            f"Deaths: {self.deaths}, Respawns: {self.respawns}\n"
             f"Captchas: {self.captchas_solved} solved, {self.captchas_failed} failed\n"
             f"Errors: {self.errors}"
         )
@@ -280,6 +283,21 @@ class TravelBot:
                     continue
 
                 if not result.success:
+                    # Check if character is dead - need to heal/respawn
+                    if result.action == "dead":
+                        self.stats.deaths += 1
+                        logger.info("💀 Character is dead! Attempting to respawn...")
+                        heal_result = self.client.heal()
+                        if heal_result.get("success"):
+                            self.stats.respawns += 1
+                            logger.info("💚 Respawned successfully! Continuing travel...")
+                            time.sleep(2)  # Brief pause after respawn
+                        else:
+                            logger.error(f"Failed to respawn: {heal_result.get('error')}")
+                            self.stats.errors += 1
+                            time.sleep(30)
+                        continue
+
                     self.stats.errors += 1
                     logger.warning(f"Step failed: {result.message}")
                     time.sleep(30)
