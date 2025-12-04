@@ -424,9 +424,9 @@ class SimpleMMOClient:
                     logger.info(f"Lost to NPC after {attack_count} attacks")
                     break
 
-                # Delay between attacks (5-6 seconds) to avoid rate limiting
+                # Delay between attacks (1-1.2 seconds)
                 import time
-                time.sleep(5.0 + random.random() * 1.0)
+                time.sleep(1.0 + random.random() * 0.2)
 
             return final_result
 
@@ -571,8 +571,8 @@ class SimpleMMOClient:
                     logger.warning(f"Gather failed: {result}")
                     break
 
-                # Delay between gathers (0.8-1.2 seconds) to avoid rate limiting
-                time.sleep(0.8 + random.random() * 0.4)
+                # Delay between gathers (1-1.2 seconds)
+                time.sleep(1.0 + random.random() * 0.2)
 
             # Add totals to final result
             final_result["total_player_exp"] = total_player_exp
