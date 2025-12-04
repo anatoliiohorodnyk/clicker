@@ -345,9 +345,11 @@ class SimpleMMOClient:
             html = page_response.text
 
             # Step 2: Parse the attack API URL from the page
-            # Looking for pattern like: /api/npcs/attack/434g3s?expires=...&signature=...
+            # The URL is in JavaScript game_data as escaped JSON:
+            # "npc.attack_endpoint":"https:\/\/web.simple-mmo.com\/api\/npcs\/attack\/434g3s?expires=...&signature=..."
+            # Note: \/ is escaped slash, \u0026 is escaped &
             api_url_pattern = re.compile(
-                r'/api/npcs/attack/([a-zA-Z0-9]+)\?expires=(\d+)&signature=([a-f0-9]+)'
+                r'"npc\.attack_endpoint"\s*:\s*"https?:\\?/\\?/web\.simple-mmo\.com\\?/api\\?/npcs\\?/attack\\?/([a-zA-Z0-9]+)\?expires=(\d+)(?:\\u0026|&)signature=([a-f0-9]+)"'
             )
             match = api_url_pattern.search(html)
 
