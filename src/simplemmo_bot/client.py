@@ -424,9 +424,9 @@ class SimpleMMOClient:
                     logger.info(f"Lost to NPC after {attack_count} attacks")
                     break
 
-                # Small delay between attacks (0.3-0.6 seconds)
+                # Delay between attacks (5-6 seconds) to avoid rate limiting
                 import time
-                time.sleep(0.3 + random.random() * 0.3)
+                time.sleep(5.0 + random.random() * 1.0)
 
             return final_result
 
