@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     # Bot behavior
     step_delay_min: int = Field(default=3, ge=1, description="Minimum delay between steps (seconds)")
     step_delay_max: int = Field(default=8, ge=1, description="Maximum delay between steps (seconds)")
-    steps_per_session: int = Field(default=100, ge=1, description="Steps before pause")
+    steps_per_session: int = Field(default=100, ge=0, description="Steps before pause (0 = infinite)")
 
     # Features
     auto_fight_npc: bool = Field(default=True, description="Automatically fight NPCs")

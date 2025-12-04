@@ -558,11 +558,6 @@ class SimpleMMOClient:
                     logger.info(f"Gathered {gather_count}x material! Total: +{total_player_exp} XP, +{total_skill_exp} skill XP")
                     break
 
-                # Check for errors
-                if result.get("type") != "success":
-                    logger.warning(f"Gather returned non-success: {result.get('type')}")
-                    break
-
                 # Small delay between gathers (0.3-0.6 seconds)
                 time.sleep(0.3 + random.random() * 0.3)
 

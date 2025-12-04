@@ -244,9 +244,12 @@ class TravelBot:
         self._running = True
         self.stats = TravelStats()
 
-        logger.info(f"Starting travel session (max {max_steps} steps)")
+        if max_steps == 0:
+            logger.info("Starting travel session (infinite mode)")
+        else:
+            logger.info(f"Starting travel session (max {max_steps} steps)")
 
-        while self._running and self.stats.steps_taken < max_steps:
+        while self._running and (max_steps == 0 or self.stats.steps_taken < max_steps):
             try:
                 # Take a step
                 result = self.client.travel_step()
