@@ -9,6 +9,7 @@ from .config import get_settings, Settings
 from .client import SimpleMMOClient
 from .captcha import CaptchaSolver
 from .travel import TravelBot, TravelStats
+from .auth import auto_login
 
 
 def setup_logging(verbose: bool = False) -> None:
@@ -121,6 +122,25 @@ def main() -> int:
         logger.error("GEMINI_API_KEY not configured")
         logger.error("Get your key from https://aistudio.google.com/app/apikey")
         return 1
+
+    # Auto-login if session cookies not provided
+    if not settings.simplemmo_laravel_session or not settings.simplemmo_xsrf_token:
+        if settings.simplemmo_email and settings.simplemmo_password:
+            logger.info("Session cookies not found, attempting auto-login...")
+            credentials = auto_login(settings)
+
+            if credentials:
+                # Update settings with new cookies
+                settings.simplemmo_laravel_session = credentials.laravel_session
+                settings.simplemmo_xsrf_token = credentials.xsrf_token
+                logger.info("Auto-login successful, session cookies obtained")
+            else:
+                logger.error("Auto-login failed")
+                logger.error("Either fix login credentials or provide session cookies manually")
+                return 1
+        else:
+            logger.warning("No session cookies and no login credentials provided")
+            logger.warning("Some features (NPC fights, captcha) may not work")
 
     # Run bot
     try:

@@ -11,7 +11,11 @@ class Settings(BaseSettings):
     simplemmo_api_token: str = Field(..., description="SimpleMMO API token from browser")
     gemini_api_key: str = Field(..., description="Google Gemini API key for captcha")
 
-    # Session cookies for web auth (captcha)
+    # Login credentials (for auto-login)
+    simplemmo_email: str = Field(default="", description="SimpleMMO login email")
+    simplemmo_password: str = Field(default="", description="SimpleMMO login password")
+
+    # Session cookies for web auth (can be auto-obtained via login)
     simplemmo_laravel_session: str = Field(default="", description="Laravel session cookie")
     simplemmo_xsrf_token: str = Field(default="", description="XSRF token cookie")
 
