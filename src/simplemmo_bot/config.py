@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     """Bot configuration loaded from environment variables."""
 
     # API credentials
-    simplemmo_api_token: str = Field(..., description="SimpleMMO API token from browser")
+    simplemmo_api_token: str = Field(default="", description="SimpleMMO API token (auto-obtained if empty)")
     gemini_api_key: str = Field(..., description="Google Gemini API key for captcha")
 
     # Login credentials (for auto-login)

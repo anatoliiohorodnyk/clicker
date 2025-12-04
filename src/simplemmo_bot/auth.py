@@ -18,6 +18,7 @@ class SessionCredentials:
 
     laravel_session: str
     xsrf_token: str
+    api_token: str = ""
 
 
 class SimpleMMOAuth:
@@ -121,9 +122,23 @@ class SimpleMMOAuth:
             logger.debug(f"Laravel session length: {len(laravel_session)}")
             logger.debug(f"XSRF token length: {len(xsrf_token)}")
 
+            # Step 3: Extract API token from the response page
+            api_token = self._extract_api_token(login_response.text)
+            if not api_token:
+                # Try fetching home page to get API token
+                logger.debug("API token not in login response, fetching home page...")
+                home_response = self._client.get("https://web.simple-mmo.com/home")
+                api_token = self._extract_api_token(home_response.text)
+
+            if api_token:
+                logger.info(f"API token obtained (length: {len(api_token)})")
+            else:
+                logger.warning("Could not extract API token - will need manual configuration")
+
             return SessionCredentials(
                 laravel_session=laravel_session,
                 xsrf_token=xsrf_token,
+                api_token=api_token or "",
             )
 
         except httpx.HTTPStatusError as e:
@@ -159,6 +174,31 @@ class SimpleMMOAuth:
             re.IGNORECASE,
         )
         match = meta_pattern.search(html)
+        if match:
+            return match.group(1)
+
+        return None
+
+    def _extract_api_token(self, html: str) -> str | None:
+        """Extract API token from page HTML.
+
+        Looks for: <meta name="api-token" content="...">
+        """
+        # Pattern: <meta name="api-token" content="...">
+        api_token_pattern = re.compile(
+            r'<meta[^>]*name=["\']api-token["\'][^>]*content=["\']([^"\']+)["\']',
+            re.IGNORECASE,
+        )
+        match = api_token_pattern.search(html)
+        if match:
+            return match.group(1)
+
+        # Alternative: content before name
+        api_token_pattern_alt = re.compile(
+            r'<meta[^>]*content=["\']([^"\']+)["\'][^>]*name=["\']api-token["\']',
+            re.IGNORECASE,
+        )
+        match = api_token_pattern_alt.search(html)
         if match:
             return match.group(1)
 

@@ -112,35 +112,48 @@ def main() -> int:
         logger.error("See .env.example for reference")
         return 1
 
-    # Validate token
-    if not settings.simplemmo_api_token or settings.simplemmo_api_token == "your_api_token_here":
-        logger.error("SIMPLEMMO_API_TOKEN not configured")
-        logger.error("Get your token from browser DevTools -> Network -> travel request")
-        return 1
-
+    # Validate Gemini API key (always required for captcha)
     if not settings.gemini_api_key or settings.gemini_api_key == "your_gemini_api_key_here":
         logger.error("GEMINI_API_KEY not configured")
         logger.error("Get your key from https://aistudio.google.com/app/apikey")
         return 1
 
-    # Auto-login if session cookies not provided
-    if not settings.simplemmo_laravel_session or not settings.simplemmo_xsrf_token:
+    # Auto-login if session cookies or API token not provided
+    needs_login = (
+        not settings.simplemmo_laravel_session
+        or not settings.simplemmo_xsrf_token
+        or not settings.simplemmo_api_token
+        or settings.simplemmo_api_token == "your_api_token_here"
+    )
+
+    if needs_login:
         if settings.simplemmo_email and settings.simplemmo_password:
-            logger.info("Session cookies not found, attempting auto-login...")
+            logger.info("Credentials missing, attempting auto-login...")
             credentials = auto_login(settings)
 
             if credentials:
-                # Update settings with new cookies
-                settings.simplemmo_laravel_session = credentials.laravel_session
-                settings.simplemmo_xsrf_token = credentials.xsrf_token
-                logger.info("Auto-login successful, session cookies obtained")
+                # Update settings with new values from login
+                if not settings.simplemmo_laravel_session:
+                    settings.simplemmo_laravel_session = credentials.laravel_session
+                if not settings.simplemmo_xsrf_token:
+                    settings.simplemmo_xsrf_token = credentials.xsrf_token
+                if credentials.api_token and (not settings.simplemmo_api_token or settings.simplemmo_api_token == "your_api_token_here"):
+                    settings.simplemmo_api_token = credentials.api_token
+                logger.info("Auto-login successful!")
             else:
                 logger.error("Auto-login failed")
-                logger.error("Either fix login credentials or provide session cookies manually")
+                logger.error("Either fix login credentials or provide tokens manually")
                 return 1
         else:
-            logger.warning("No session cookies and no login credentials provided")
-            logger.warning("Some features (NPC fights, captcha) may not work")
+            logger.warning("No login credentials provided")
+            logger.warning("Some features may not work without proper authentication")
+
+    # Final validation - API token is required
+    if not settings.simplemmo_api_token or settings.simplemmo_api_token == "your_api_token_here":
+        logger.error("SIMPLEMMO_API_TOKEN not configured and could not be auto-obtained")
+        logger.error("Either provide SIMPLEMMO_EMAIL + SIMPLEMMO_PASSWORD for auto-login")
+        logger.error("Or get token manually from browser DevTools -> Network -> travel request")
+        return 1
 
     # Run bot
     try:
