@@ -109,10 +109,38 @@ class TravelBot:
 
         attack_result = self.client.attack_npc(npc_id)
 
-        if attack_result.get("success") or attack_result.get("win"):
+        # Log full result for debugging
+        logger.debug(f"NPC attack result: {attack_result}")
+
+        # Check for errors
+        if attack_result.get("error"):
+            logger.error(f"NPC attack failed: {attack_result.get('error')}")
+            self.stats.npcs_lost += 1
+            return
+
+        # Determine win/loss - check various possible field names
+        won = (
+            attack_result.get("result") == "win"
+            or attack_result.get("win") is True
+            or attack_result.get("success") is True
+            or attack_result.get("victory") is True
+            or "you win" in str(attack_result.get("text", "")).lower()
+            or "победа" in str(attack_result.get("text", "")).lower()
+        )
+
+        # Extract gold and exp using correct field names
+        gold = attack_result.get("gold_amount", attack_result.get("gold", 0)) or 0
+        exp = attack_result.get("exp_amount", attack_result.get("exp", 0)) or 0
+
+        try:
+            gold = int(gold)
+            exp = int(exp)
+        except (ValueError, TypeError):
+            gold = 0
+            exp = 0
+
+        if won:
             self.stats.npcs_won += 1
-            exp = attack_result.get("exp", 0)
-            gold = attack_result.get("gold", 0)
             self.stats.exp_earned += exp
             self.stats.gold_earned += gold
             logger.info(f"Won against {npc_name}! +{exp} XP, +{gold} gold")

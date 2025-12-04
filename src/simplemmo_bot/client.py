@@ -304,39 +304,71 @@ class SimpleMMOClient:
             npc_id: The NPC identifier to attack.
 
         Returns:
-            Attack result dictionary.
+            Attack result dictionary with win/loss, gold, exp.
         """
-        d_1, d_2 = self._generate_coordinates()
-
-        # First, navigate to the NPC attack page
         try:
-            # Get the attack page
-            attack_url = f"/npcs/attack/{npc_id}"
-            response = self._client.get(
-                attack_url.replace("/npcs", ""),
+            # Step 1: Load the attack page to get the signed API URL
+            attack_page_url = f"https://web.simple-mmo.com/npcs/attack/{npc_id}?new_page=true"
+            logger.debug(f"Loading NPC attack page: {attack_page_url}")
+
+            page_response = self._client.get(
+                attack_page_url,
                 headers={
-                    **self.DEFAULT_HEADERS,
-                    "Referer": "https://web.simple-mmo.com/travel",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    "Accept-Language": "en-US,en;q=0.9",
+                    "Referer": "https://web.simple-mmo.com/travel?new_page=true",
+                    "User-Agent": self.DEFAULT_HEADERS["User-Agent"],
                 },
             )
+            page_response.raise_for_status()
+            html = page_response.text
 
-            # Now perform the actual attack
-            data = {
-                "api_token": self.settings.simplemmo_api_token,
-                "npc_id": str(npc_id),
-                "d_1": str(d_1),
-                "d_2": str(d_2),
+            # Step 2: Parse the attack API URL from the page
+            # Looking for pattern like: /api/npcs/attack/434g3s?expires=...&signature=...
+            api_url_pattern = re.compile(
+                r'/api/npcs/attack/([a-zA-Z0-9]+)\?expires=(\d+)&signature=([a-f0-9]+)'
+            )
+            match = api_url_pattern.search(html)
+
+            if not match:
+                logger.error("Could not find attack API URL in page")
+                logger.debug(f"Page content (first 2000 chars): {html[:2000]}")
+                return {"success": False, "error": "Attack API URL not found"}
+
+            api_code = match.group(1)
+            expires = match.group(2)
+            signature = match.group(3)
+
+            attack_api_url = f"https://web.simple-mmo.com/api/npcs/attack/{api_code}?expires={expires}&signature={signature}"
+            logger.debug(f"Found attack API URL: {attack_api_url}")
+
+            # Step 3: Perform the attack with JSON body and Bearer auth
+            attack_payload = {
+                "npc_id": npc_id,
+                "special_attack": False,
             }
 
-            response = self._client.post(
-                "/api/npcs/attack",
-                data=data,
+            attack_response = self._client.post(
+                attack_api_url,
+                json=attack_payload,
+                headers={
+                    "Accept": "application/json",
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {self.settings.simplemmo_api_token}",
+                    "Origin": "https://web.simple-mmo.com",
+                    "Referer": attack_page_url,
+                    "User-Agent": self.DEFAULT_HEADERS["User-Agent"],
+                },
             )
-            response.raise_for_status()
-            result = response.json()
+            attack_response.raise_for_status()
+            result = attack_response.json()
+
             logger.debug(f"NPC attack response: {result}")
             return result
 
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP error attacking NPC {npc_id}: {e.response.status_code}")
+            return {"success": False, "error": f"HTTP {e.response.status_code}"}
         except Exception as e:
             logger.error(f"Error attacking NPC {npc_id}: {e}")
             return {"success": False, "error": str(e)}
