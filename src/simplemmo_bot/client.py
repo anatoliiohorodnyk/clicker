@@ -398,7 +398,7 @@ class SimpleMMOClient:
                 attack_response.raise_for_status()
                 result = attack_response.json()
 
-                logger.debug(f"Attack #{attack_count}: player_hp={result.get('player_hp')}, opponent_hp={result.get('opponent_hp')}")
+                logger.debug(f"Attack #{attack_count}: player_hp={result.get('player_hp')}, opponent_hp={result.get('opponent_hp')}, keys={list(result.keys())}")
 
                 # Store the latest result
                 final_result = result
@@ -407,14 +407,19 @@ class SimpleMMOClient:
                 opponent_hp = result.get("opponent_hp", 0)
                 player_hp = result.get("player_hp", 0)
                 battle_result = result.get("result")
+                has_rewards = "rewards" in result and result["rewards"]
 
-                if opponent_hp <= 0:
-                    # Victory!
-                    final_result["win"] = True
-                    logger.info(f"NPC defeated after {attack_count} attacks!")
+                # Battle ends when we have a result field or rewards
+                if battle_result is not None or has_rewards:
+                    if opponent_hp <= 0 or battle_result == "win":
+                        final_result["win"] = True
+                        logger.info(f"NPC defeated after {attack_count} attacks!")
+                    else:
+                        final_result["win"] = False
+                        logger.info(f"Lost to NPC after {attack_count} attacks")
                     break
-                elif player_hp <= 0 or battle_result is not None:
-                    # Defeat or battle ended
+                elif player_hp <= 0:
+                    # Player died
                     final_result["win"] = False
                     logger.info(f"Lost to NPC after {attack_count} attacks")
                     break
@@ -566,8 +571,8 @@ class SimpleMMOClient:
                     logger.warning(f"Gather failed: {result}")
                     break
 
-                # Small delay between gathers (0.3-0.6 seconds)
-                time.sleep(0.3 + random.random() * 0.3)
+                # Delay between gathers (0.8-1.2 seconds) to avoid rate limiting
+                time.sleep(0.8 + random.random() * 0.4)
 
             # Add totals to final result
             final_result["total_player_exp"] = total_player_exp

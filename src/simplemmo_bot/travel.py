@@ -156,6 +156,12 @@ class TravelBot:
         # Parse gold and exp from rewards HTML
         gold, exp = self._parse_npc_rewards(attack_result)
 
+        # Debug: log rewards field if present
+        if "rewards" in attack_result:
+            logger.debug(f"NPC rewards field: {attack_result['rewards']}")
+        else:
+            logger.debug(f"No rewards field in attack result. Keys: {list(attack_result.keys())}")
+
         if won:
             self.stats.npcs_won += 1
             self.stats.exp_earned += exp
