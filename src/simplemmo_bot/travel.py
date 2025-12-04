@@ -177,9 +177,23 @@ class TravelBot:
 
         gather_result = self.client.gather_material(material_id)
 
-        if gather_result.get("success", True):
-            self.stats.materials_gathered += 1
-            logger.info(f"Gathered {material_name}")
+        # Log full result for debugging
+        logger.debug(f"Material gather result: {gather_result}")
+
+        # Check for errors
+        if gather_result.get("error"):
+            logger.error(f"Material gather failed: {gather_result.get('error')}")
+            return
+
+        if gather_result.get("success", False):
+            gather_count = gather_result.get("gather_count", 1)
+            total_exp = gather_result.get("total_player_exp", 0)
+            skill_exp = gather_result.get("total_skill_exp", 0)
+
+            self.stats.materials_gathered += gather_count
+            self.stats.exp_earned += total_exp
+
+            logger.info(f"Gathered {gather_count}x {material_name}! +{total_exp} XP, +{skill_exp} skill XP")
 
     def _handle_captcha(self, result: TravelResult) -> bool:
         """

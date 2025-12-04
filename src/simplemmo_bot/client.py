@@ -436,31 +436,147 @@ class SimpleMMOClient:
         """
         Gather a material during travel.
 
+        Uses the same two-step approach as NPC attacks:
+        1. Load the gather page to get the signed API URL
+        2. POST to the signed endpoint to gather
+
         Args:
             material_id: The material identifier to gather.
 
         Returns:
-            Gather result dictionary.
+            Gather result dictionary with total exp gained and gather count.
         """
-        d_1, d_2 = self._generate_coordinates()
-
-        data = {
-            "api_token": self.settings.simplemmo_api_token,
-            "material_id": str(material_id),
-            "d_1": str(d_1),
-            "d_2": str(d_2),
-        }
+        import time
 
         try:
-            response = self._client.post(
-                "/api/crafting/material/gather",
-                data=data,
-            )
-            response.raise_for_status()
-            result = response.json()
-            logger.debug(f"Material gather response: {result}")
-            return result
+            # Step 1: Load the gather page to get the signed API URL
+            gather_page_url = f"https://web.simple-mmo.com/crafting/material/gather/{material_id}?new_page=true"
+            logger.debug(f"Loading material gather page: {gather_page_url}")
 
+            page_headers = {
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Referer": "https://web.simple-mmo.com/travel?new_page=true",
+                "User-Agent": self.DEFAULT_HEADERS["User-Agent"],
+            }
+            if self.settings.simplemmo_xsrf_token:
+                page_headers["X-XSRF-TOKEN"] = self.settings.simplemmo_xsrf_token
+
+            page_response = self._client.get(
+                gather_page_url,
+                headers=page_headers,
+            )
+
+            # Check for redirect (authentication issue)
+            if page_response.status_code in (301, 302, 303, 307, 308):
+                logger.error(f"Got redirect {page_response.status_code} - likely missing/expired session cookies")
+                return {"success": False, "error": "Session expired - update SIMPLEMMO_LARAVEL_SESSION cookie"}
+
+            page_response.raise_for_status()
+            html = page_response.text
+
+            # Step 2: Parse the gather API URL and session ID from game_data
+            # Format: "gathering.gather_endpoint":"https:\/\/web.simple-mmo.com\/api\/crafting\/material\/gather?expires=...&signature=..."
+            gather_endpoint_pattern = re.compile(
+                r'"gathering\.gather_endpoint"\s*:\s*"(https?:\\?/\\?/web\.simple-mmo\.com\\?/api\\?/crafting\\?/material\\?/gather\?expires=\d+(?:\\u0026|&)signature=[a-f0-9]+)"'
+            )
+            endpoint_match = gather_endpoint_pattern.search(html)
+
+            if not endpoint_match:
+                logger.error("Could not find gather API URL in page")
+                logger.debug(f"Page content (first 2000 chars): {html[:2000]}")
+                return {"success": False, "error": "Gather API URL not found"}
+
+            # Unescape the URL
+            gather_api_url = endpoint_match.group(1)
+            gather_api_url = gather_api_url.replace("\\/", "/").replace("\\u0026", "&")
+            logger.debug(f"Found gather API URL: {gather_api_url}")
+
+            # Parse material_session_id
+            session_id_pattern = re.compile(r'"gathering\.material_session_id"\s*:\s*(\d+)')
+            session_match = session_id_pattern.search(html)
+
+            if not session_match:
+                logger.error("Could not find material_session_id in page")
+                return {"success": False, "error": "Material session ID not found"}
+
+            material_session_id = int(session_match.group(1))
+            logger.debug(f"Material session ID: {material_session_id}")
+
+            # Parse available amount (optional, for logging)
+            amount_pattern = re.compile(r'"gathering\.available_amount"\s*:\s*(\d+)')
+            amount_match = amount_pattern.search(html)
+            available_amount = int(amount_match.group(1)) if amount_match else 1
+            logger.debug(f"Available amount: {available_amount}")
+
+            # Step 3: Gather in a loop until is_end is true
+            gather_headers = {
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.settings.simplemmo_api_token}",
+                "Origin": "https://web.simple-mmo.com",
+                "Referer": gather_page_url,
+                "User-Agent": self.DEFAULT_HEADERS["User-Agent"],
+            }
+            if self.settings.simplemmo_xsrf_token:
+                gather_headers["X-XSRF-TOKEN"] = self.settings.simplemmo_xsrf_token
+
+            # Gather loop
+            gather_count = 0
+            max_gathers = 50  # Safety limit
+            total_player_exp = 0
+            total_skill_exp = 0
+            final_result: dict[str, Any] = {}
+
+            while gather_count < max_gathers:
+                gather_count += 1
+
+                gather_payload = {
+                    "quantity": 1,
+                    "id": material_session_id,
+                }
+
+                gather_response = self._client.post(
+                    gather_api_url,
+                    json=gather_payload,
+                    headers=gather_headers,
+                )
+                gather_response.raise_for_status()
+                result = gather_response.json()
+
+                logger.debug(f"Gather #{gather_count}: type={result.get('type')}, is_end={result.get('is_end')}")
+
+                # Accumulate experience
+                total_player_exp += result.get("player_experience_gained", 0)
+                total_skill_exp += result.get("skill_experience_gained", 0)
+
+                # Store the latest result
+                final_result = result
+
+                # Check if gathering is finished
+                if result.get("is_end", False):
+                    logger.info(f"Gathered {gather_count}x material! Total: +{total_player_exp} XP, +{total_skill_exp} skill XP")
+                    break
+
+                # Check for errors
+                if result.get("type") != "success":
+                    logger.warning(f"Gather returned non-success: {result.get('type')}")
+                    break
+
+                # Small delay between gathers (0.3-0.6 seconds)
+                time.sleep(0.3 + random.random() * 0.3)
+
+            # Add totals to final result
+            final_result["total_player_exp"] = total_player_exp
+            final_result["total_skill_exp"] = total_skill_exp
+            final_result["gather_count"] = gather_count
+            final_result["success"] = True
+
+            return final_result
+
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP error gathering material {material_id}: {e.response.status_code}")
+            return {"success": False, "error": f"HTTP {e.response.status_code}"}
         except Exception as e:
             logger.error(f"Error gathering material {material_id}: {e}")
             return {"success": False, "error": str(e)}
