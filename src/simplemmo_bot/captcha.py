@@ -106,6 +106,12 @@ class CaptchaSolver:
 
             # Debug: log page info
             logger.debug(f"Captcha page status: {response.status_code}, length: {len(html)}")
+
+            # Check for "already verified" message
+            if "already verified" in html.lower() or "do not need to verify" in html.lower():
+                logger.info("Account is already verified - no captcha needed")
+                return -1, "already_verified"  # Special return value
+
             if "login" in html.lower() or "sign in" in html.lower():
                 logger.error("Captcha page appears to be a login redirect!")
                 logger.debug(f"Page content (first 500 chars): {html[:500]}")

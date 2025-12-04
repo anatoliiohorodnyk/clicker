@@ -213,6 +213,12 @@ class TravelBot:
         # Use the new solve_captcha method that fetches images directly
         answer, prompt = self.captcha_solver.solve_captcha()
 
+        # Check for "already verified" (answer == -1)
+        if answer == -1:
+            logger.info("Already verified - continuing without captcha submission")
+            time.sleep(2)
+            return True
+
         if answer is None:
             logger.error("Failed to solve captcha")
             self.stats.captchas_failed += 1
