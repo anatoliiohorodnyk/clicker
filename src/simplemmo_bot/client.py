@@ -523,13 +523,14 @@ class SimpleMMOClient:
 
             # Gather loop
             gather_count = 0
-            max_gathers = 50  # Safety limit
+            iteration = 0
+            max_iterations = 50  # Safety limit
             total_player_exp = 0
             total_skill_exp = 0
             final_result: dict[str, Any] = {}
 
-            while gather_count < max_gathers:
-                gather_count += 1
+            while iteration < max_iterations:
+                iteration += 1
 
                 gather_payload = {
                     "quantity": 1,
@@ -544,11 +545,13 @@ class SimpleMMOClient:
                 gather_response.raise_for_status()
                 result = gather_response.json()
 
-                logger.debug(f"Gather #{gather_count}: type={result.get('type')}, is_end={result.get('is_end')}")
+                logger.debug(f"Gather iteration {iteration}: type={result.get('type')}, is_end={result.get('is_end')}")
 
-                # Accumulate experience
-                total_player_exp += result.get("player_experience_gained", 0)
-                total_skill_exp += result.get("skill_experience_gained", 0)
+                # Only count successful gathers
+                if result.get("type") == "success":
+                    gather_count += 1
+                    total_player_exp += result.get("player_experience_gained", 0)
+                    total_skill_exp += result.get("skill_experience_gained", 0)
 
                 # Store the latest result
                 final_result = result
@@ -556,6 +559,11 @@ class SimpleMMOClient:
                 # Check if gathering is finished
                 if result.get("is_end", False):
                     logger.info(f"Gathered {gather_count}x material! Total: +{total_player_exp} XP, +{total_skill_exp} skill XP")
+                    break
+
+                # Stop on error
+                if result.get("type") != "success":
+                    logger.warning(f"Gather failed: {result}")
                     break
 
                 # Small delay between gathers (0.3-0.6 seconds)
