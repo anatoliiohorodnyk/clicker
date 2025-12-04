@@ -7,6 +7,7 @@ Automated travel & resource farming bot for SimpleMMO.
 - Auto travel with human-like delays
 - Auto fight NPCs
 - Auto gather materials
+- Auto respawn (healer or 5min wait)
 - Captcha solving (Google Gemini)
 - Configurable break pauses
 - Auto re-login
@@ -45,6 +46,7 @@ BREAK_DURATION_MAX=420
 # Features
 AUTO_FIGHT_NPC=true
 AUTO_GATHER_MATERIALS=true
+USE_HEALER=false              # true = use healer (3/day), false = wait 5min
 ```
 
 ## Commands

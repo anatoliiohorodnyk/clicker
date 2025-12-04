@@ -286,16 +286,27 @@ class TravelBot:
                     # Check if character is dead - need to heal/respawn
                     if result.action == "dead":
                         self.stats.deaths += 1
-                        logger.info("💀 Character is dead! Attempting to respawn...")
-                        heal_result = self.client.heal()
-                        if heal_result.get("success"):
-                            self.stats.respawns += 1
-                            logger.info("💚 Respawned successfully! Continuing travel...")
-                            time.sleep(2)  # Brief pause after respawn
+
+                        if self.settings.use_healer:
+                            # Use healer (limited 3/day)
+                            logger.info("💀 Character is dead! Using healer to respawn...")
+                            heal_result = self.client.heal()
+                            if heal_result.get("success"):
+                                self.stats.respawns += 1
+                                logger.info("💚 Respawned successfully! Continuing travel...")
+                                time.sleep(2)
+                            else:
+                                logger.error(f"Failed to respawn: {heal_result.get('error')}")
+                                logger.info("⏳ Waiting 5 minutes for auto-respawn...")
+                                time.sleep(300)
+                                self.stats.respawns += 1
                         else:
-                            logger.error(f"Failed to respawn: {heal_result.get('error')}")
-                            self.stats.errors += 1
-                            time.sleep(30)
+                            # Wait for auto-respawn (5 minutes)
+                            logger.info("💀 Character is dead! Waiting 5 minutes for auto-respawn...")
+                            time.sleep(300)
+                            self.stats.respawns += 1
+                            logger.info("💚 Auto-respawned! Continuing travel...")
+
                         continue
 
                     self.stats.errors += 1
