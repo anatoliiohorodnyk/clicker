@@ -598,7 +598,7 @@ class SimpleMMOClient:
                     break
 
                 # Human-like delay between gathers
-                human_delay(base=1.1, std=0.15, min_delay=0.8)
+                human_delay(base=1.15, std=0.1, min_delay=1.0)
 
             # Add totals to final result
             final_result["total_player_exp"] = total_player_exp
