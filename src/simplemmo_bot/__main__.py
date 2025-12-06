@@ -68,11 +68,11 @@ def run_travel(settings: Settings, steps: int | None = None) -> TravelStats:
             return bot.travel(max_steps=steps)
 
 
-def run_quests(settings: Settings) -> QuestStats:
+def run_quests(settings: Settings, continuous: bool = False) -> QuestStats:
     """Run quest bot session."""
     with SimpleMMOClient(settings) as client:
         bot = QuestBot(settings, client)
-        return bot.run_quests()
+        return bot.run_quests(continuous=continuous)
 
 
 def main() -> int:
@@ -171,9 +171,16 @@ def main() -> int:
 
     # Run bot
     try:
-        if args.quests:
+        # Check if we should run quests (CLI flag or env setting)
+        run_quest_mode = args.quests or settings.only_quests
+
+        if run_quest_mode:
+            # In ONLY_QUESTS mode, run continuously (wait for quest points)
+            continuous = settings.only_quests
             logger.info("Starting quest automation...")
-            stats = run_quests(settings)
+            if continuous:
+                logger.info("ONLY_QUESTS mode: will run continuously")
+            stats = run_quests(settings, continuous=continuous)
         else:
             logger.info("Starting travel bot...")
             stats = run_travel(settings, steps=args.steps)

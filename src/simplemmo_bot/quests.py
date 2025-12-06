@@ -127,39 +127,67 @@ class QuestBot:
 
         return current, maximum
 
-    def run_quests(self) -> QuestStats:
+    def run_quests(self, continuous: bool = False) -> QuestStats:
         """
-        Run quest automation until quest points are depleted.
+        Run quest automation.
+
+        Args:
+            continuous: If True, wait for quest points when depleted instead of stopping.
 
         Returns:
             Quest statistics.
         """
         self._running = True
         self.stats = QuestStats()
+        wait_interval = 5 * 60  # 5 minutes
 
         logger.info("Starting quest automation...")
+        if continuous:
+            logger.info("Continuous mode: will wait for quest points when depleted")
 
-        # Get initial quest points
-        current_qp, max_qp = self._get_quest_points()
-        logger.info(f"Quest Points: {current_qp}/{max_qp}")
+        # Track completed quests to skip them
+        completed_quest_ids: set[int] = set()
 
-        if current_qp == 0:
-            logger.warning("No quest points available!")
-            return self.stats
-
-        # Get quests and signed endpoint
-        quests, get_endpoint, perform_endpoint = self.client.get_quests()
-
-        if not quests or not perform_endpoint:
-            logger.error("Failed to get quests or perform endpoint")
-            return self.stats
-
-        while self._running and current_qp > 0:
+        while self._running:
             try:
+                # Get current quest points
+                current_qp, max_qp = self._get_quest_points()
+                logger.info(f"Quest Points: {current_qp}/{max_qp}")
+
+                if current_qp == 0:
+                    if continuous:
+                        logger.info(f"No quest points. Waiting {wait_interval // 60} minutes...")
+                        time.sleep(wait_interval)
+                        continue
+                    else:
+                        logger.info("No quest points available, stopping")
+                        break
+
+                # Get quests and signed endpoint
+                quests, get_endpoint, perform_endpoint = self.client.get_quests()
+
+                if not quests or not perform_endpoint:
+                    logger.error("Failed to get quests or perform endpoint")
+                    if continuous:
+                        time.sleep(60)
+                        continue
+                    break
+
+                # Filter out already fully completed quests
+                available_quests = [
+                    q for q in quests
+                    if q.get("id") not in completed_quest_ids
+                ]
+
                 # Select best quest
-                quest = self._select_best_quest(quests)
+                quest = self._select_best_quest(available_quests)
                 if not quest:
                     logger.info("No more suitable quests available")
+                    if continuous:
+                        # Reset completed list and wait - maybe new quests available
+                        completed_quest_ids.clear()
+                        time.sleep(wait_interval)
+                        continue
                     break
 
                 quest_id = quest.get("id")
@@ -171,16 +199,20 @@ class QuestBot:
                 result = self.client.perform_quest(quest_id, perform_endpoint)
                 self.stats.quests_attempted += 1
                 self.stats.quest_points_used += 1
+                current_qp -= 1
 
                 if result.get("success"):
                     self.stats.quests_succeeded += 1
                     self.stats.gold_earned += result.get("gold", 0)
                     self.stats.exp_earned += result.get("experience", 0)
+
+                    # Check if quest is now fully completed (100%)
+                    # API returns is_completed=true when quest cannot be done anymore
+                    if result.get("is_completed", False):
+                        logger.info(f"Quest '{quest_title}' fully completed, moving to next")
+                        completed_quest_ids.add(quest_id)
                 else:
                     self.stats.quests_failed += 1
-
-                # Update quest points
-                current_qp -= 1
 
                 # Log progress
                 logger.info(
@@ -190,14 +222,7 @@ class QuestBot:
                 )
 
                 # Human-like delay between quests
-                if current_qp > 0:
-                    human_delay(base=1.5, std=0.3, min_delay=1.0)
-
-                # Refresh quests list periodically (every 10 quests) to get updated data
-                if self.stats.quests_attempted % 10 == 0:
-                    quests, _, new_endpoint = self.client.get_quests()
-                    if new_endpoint:
-                        perform_endpoint = new_endpoint
+                human_delay(base=1.5, std=0.3, min_delay=1.0)
 
             except KeyboardInterrupt:
                 logger.info("Interrupted by user")

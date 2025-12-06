@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     auto_fight_npc: bool = Field(default=True, description="Automatically fight NPCs")
     auto_gather_materials: bool = Field(default=True, description="Automatically gather materials")
     use_healer: bool = Field(default=False, description="Use healer on death (limited 3/day) or wait 5min auto-respawn")
+    only_quests: bool = Field(default=False, description="Only run quest automation, skip travel")
 
     # API endpoints
     api_base_url: str = Field(default="https://api.simple-mmo.com")
