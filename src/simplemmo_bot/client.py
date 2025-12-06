@@ -705,29 +705,54 @@ class SimpleMMOClient:
             page_response.raise_for_status()
             html = page_response.text
 
-            # Step 2: Parse signed URLs from game_data
+            # Step 2: Parse signed URLs from page
+            # Try multiple patterns - the format may vary
+
+            # Pattern 1: Standard JSON format with escaped slashes
             # "quests.get_endpoint":"https:\/\/web.simple-mmo.com\/api\/quests\/get?expires=...&signature=..."
-            get_pattern = re.compile(
-                r'"quests\.get_endpoint"\s*:\s*"(https?:\\?/\\?/web\.simple-mmo\.com\\?/api\\?/quests\\?/get\?expires=\d+(?:\\u0026|&)signature=[a-f0-9]+)"'
-            )
-            get_match = get_pattern.search(html)
+            get_patterns = [
+                # Escaped slashes with \u0026
+                r'"quests\.get_endpoint"\s*:\s*"(https?:[^"]+/api/quests/get\?[^"]+)"',
+                # Any URL with /api/quests/get
+                r'(https?://web\.simple-mmo\.com/api/quests/get\?expires=\d+&signature=[a-f0-9]+)',
+                # Escaped format
+                r'(https?:\\?/\\?/web\.simple-mmo\.com\\?/api\\?/quests\\?/get\?expires=\d+(?:\\u0026|&)signature=[a-f0-9]+)',
+            ]
 
-            # "quests.perform_endpoint":"https:\/\/web.simple-mmo.com\/api\/quests\/perform?expires=...&signature=..."
-            perform_pattern = re.compile(
-                r'"quests\.perform_endpoint"\s*:\s*"(https?:\\?/\\?/web\.simple-mmo\.com\\?/api\\?/quests\\?/perform\?expires=\d+(?:\\u0026|&)signature=[a-f0-9]+)"'
-            )
-            perform_match = perform_pattern.search(html)
+            perform_patterns = [
+                r'"quests\.perform_endpoint"\s*:\s*"(https?:[^"]+/api/quests/perform\?[^"]+)"',
+                r'(https?://web\.simple-mmo\.com/api/quests/perform\?expires=\d+&signature=[a-f0-9]+)',
+                r'(https?:\\?/\\?/web\.simple-mmo\.com\\?/api\\?/quests\\?/perform\?expires=\d+(?:\\u0026|&)signature=[a-f0-9]+)',
+            ]
 
-            if not get_match:
-                logger.error("Could not find quests.get_endpoint in page")
-                logger.debug(f"Page content (first 2000 chars): {html[:2000]}")
-                return [], None, None
-
-            # Unescape URLs
-            get_endpoint = get_match.group(1).replace("\\/", "/").replace("\\u0026", "&")
+            get_endpoint = None
             perform_endpoint = None
-            if perform_match:
-                perform_endpoint = perform_match.group(1).replace("\\/", "/").replace("\\u0026", "&")
+
+            # Try each pattern for get_endpoint
+            for pattern in get_patterns:
+                match = re.search(pattern, html)
+                if match:
+                    get_endpoint = match.group(1).replace("\\/", "/").replace("\\u0026", "&")
+                    logger.debug(f"Found get_endpoint with pattern: {pattern[:50]}...")
+                    break
+
+            # Try each pattern for perform_endpoint
+            for pattern in perform_patterns:
+                match = re.search(pattern, html)
+                if match:
+                    perform_endpoint = match.group(1).replace("\\/", "/").replace("\\u0026", "&")
+                    logger.debug(f"Found perform_endpoint with pattern: {pattern[:50]}...")
+                    break
+
+            if not get_endpoint:
+                # Log more context to help debug
+                logger.error("Could not find quests.get_endpoint in page")
+                # Search for any 'quests' or 'endpoint' strings
+                quests_mentions = re.findall(r'.{0,50}quests.{0,50}', html, re.IGNORECASE)[:5]
+                logger.debug(f"Found 'quests' mentions: {quests_mentions}")
+                endpoint_mentions = re.findall(r'.{0,50}endpoint.{0,50}', html, re.IGNORECASE)[:5]
+                logger.debug(f"Found 'endpoint' mentions: {endpoint_mentions}")
+                return [], None, None
 
             logger.debug(f"Found quests.get_endpoint: {get_endpoint}")
             logger.debug(f"Found quests.perform_endpoint: {perform_endpoint}")
