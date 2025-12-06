@@ -66,6 +66,15 @@ def init_db() -> None:
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
 
+            CREATE TABLE IF NOT EXISTS accounts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                email TEXT NOT NULL,
+                password TEXT NOT NULL,
+                is_active INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
             CREATE INDEX IF NOT EXISTS idx_logs_session ON logs(session_id);
             CREATE INDEX IF NOT EXISTS idx_logs_timestamp ON logs(timestamp DESC);
         """)
@@ -247,4 +256,92 @@ def set_setting(key: str, value: str) -> None:
             """,
             (key, value, value),
         )
+        conn.commit()
+
+
+# Account management
+@dataclass
+class Account:
+    """Game account."""
+
+    id: int
+    name: str
+    email: str
+    password: str
+    is_active: bool
+    created_at: str
+
+    @classmethod
+    def from_row(cls, row: sqlite3.Row) -> "Account":
+        """Create from database row."""
+        return cls(
+            id=row["id"],
+            name=row["name"],
+            email=row["email"],
+            password=row["password"],
+            is_active=bool(row["is_active"]),
+            created_at=row["created_at"],
+        )
+
+
+def get_accounts() -> list[Account]:
+    """Get all accounts."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM accounts ORDER BY is_active DESC, name ASC"
+        ).fetchall()
+        return [Account.from_row(row) for row in rows]
+
+
+def get_account(account_id: int) -> Account | None:
+    """Get account by ID."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM accounts WHERE id = ?", (account_id,)
+        ).fetchone()
+        return Account.from_row(row) if row else None
+
+
+def get_active_account() -> Account | None:
+    """Get currently active account."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM accounts WHERE is_active = 1 LIMIT 1"
+        ).fetchone()
+        return Account.from_row(row) if row else None
+
+
+def create_account(name: str, email: str, password: str) -> int:
+    """Create new account and return its ID."""
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "INSERT INTO accounts (name, email, password) VALUES (?, ?, ?)",
+            (name, email, password),
+        )
+        conn.commit()
+        return cursor.lastrowid
+
+
+def update_account(account_id: int, name: str, email: str, password: str) -> None:
+    """Update account details."""
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE accounts SET name = ?, email = ?, password = ? WHERE id = ?",
+            (name, email, password, account_id),
+        )
+        conn.commit()
+
+
+def delete_account(account_id: int) -> None:
+    """Delete account."""
+    with get_connection() as conn:
+        conn.execute("DELETE FROM accounts WHERE id = ?", (account_id,))
+        conn.commit()
+
+
+def set_active_account(account_id: int) -> None:
+    """Set account as active (deactivates all others)."""
+    with get_connection() as conn:
+        conn.execute("UPDATE accounts SET is_active = 0")
+        conn.execute("UPDATE accounts SET is_active = 1 WHERE id = ?", (account_id,))
         conn.commit()

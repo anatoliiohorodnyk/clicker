@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}SimpleMMO Bot Panel{% endblock %}</title>
+    <title>{% block title %}Don Quixote Bot{% endblock %}</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.ico">
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
     <style>
@@ -384,7 +384,7 @@
     {% block body %}
     <div class="layout">
         <aside class="sidebar">
-            <div class="logo">SimpleMMO Bot</div>
+            <div class="logo">Don Quixote</div>
             <nav class="nav">
                 <a href="/" class="nav-item {% if page == 'dashboard' %}active{% endif %}">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -394,6 +394,13 @@
                         <rect x="14" y="14" width="7" height="7" rx="1"/>
                     </svg>
                     Dashboard
+                </a>
+                <a href="/accounts" class="nav-item {% if page == 'accounts' %}active{% endif %}">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/>
+                        <circle cx="12" cy="7" r="4"/>
+                    </svg>
+                    Accounts
                 </a>
                 <a href="/settings" class="nav-item {% if page == 'settings' %}active{% endif %}">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

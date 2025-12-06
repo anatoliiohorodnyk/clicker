@@ -180,6 +180,72 @@ async def save_settings(
     return RedirectResponse(url="/settings?saved=1", status_code=302)
 
 
+# Accounts page
+@app.get("/accounts", response_class=HTMLResponse)
+async def accounts_page(request: Request) -> HTMLResponse:
+    """Accounts management page."""
+    accounts = db.get_accounts()
+    message = request.query_params.get("message")
+    error = request.query_params.get("error")
+    return templates.TemplateResponse(
+        "accounts.html",
+        {
+            "request": request,
+            "page": "accounts",
+            "accounts": accounts,
+            "message": message,
+            "error": error,
+        },
+    )
+
+
+@app.post("/accounts", response_class=HTMLResponse)
+async def manage_accounts(
+    request: Request,
+    action: str = Form(...),
+    account_id: int = Form(None),
+    name: str = Form(None),
+    email: str = Form(None),
+    password: str = Form(None),
+) -> HTMLResponse:
+    """Handle account management actions."""
+    try:
+        if action == "create":
+            if not name or not email or not password:
+                return RedirectResponse(url="/accounts?error=All+fields+required", status_code=302)
+            db.create_account(name, email, password)
+            return RedirectResponse(url="/accounts?message=Account+created", status_code=302)
+
+        elif action == "update":
+            if not account_id or not name or not email:
+                return RedirectResponse(url="/accounts?error=Invalid+data", status_code=302)
+            account = db.get_account(account_id)
+            if not account:
+                return RedirectResponse(url="/accounts?error=Account+not+found", status_code=302)
+            # Use existing password if not provided
+            new_password = password if password else account.password
+            db.update_account(account_id, name, email, new_password)
+            return RedirectResponse(url="/accounts?message=Account+updated", status_code=302)
+
+        elif action == "delete":
+            if not account_id:
+                return RedirectResponse(url="/accounts?error=Invalid+account", status_code=302)
+            db.delete_account(account_id)
+            return RedirectResponse(url="/accounts?message=Account+deleted", status_code=302)
+
+        elif action == "activate":
+            if not account_id:
+                return RedirectResponse(url="/accounts?error=Invalid+account", status_code=302)
+            db.set_active_account(account_id)
+            return RedirectResponse(url="/accounts?message=Account+activated", status_code=302)
+
+    except Exception as e:
+        logger.error(f"Account action error: {e}")
+        return RedirectResponse(url=f"/accounts?error={str(e)}", status_code=302)
+
+    return RedirectResponse(url="/accounts", status_code=302)
+
+
 # API routes
 @app.get("/api/status")
 async def get_status() -> dict:

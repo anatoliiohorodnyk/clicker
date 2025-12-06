@@ -169,6 +169,17 @@ class BotManager:
                 if not settings.gemini_api_key or settings.gemini_api_key == "your_gemini_api_key_here":
                     return False, "GEMINI_API_KEY not configured"
 
+                # Get active account from database
+                active_account = db.get_active_account()
+                if active_account:
+                    logger.info(f"Using account: {active_account.name} ({active_account.email})")
+                    settings.simplemmo_email = active_account.email
+                    settings.simplemmo_password = active_account.password
+                    # Clear cached tokens to force re-login with new account
+                    settings.simplemmo_laravel_session = ""
+                    settings.simplemmo_xsrf_token = ""
+                    settings.simplemmo_api_token = ""
+
                 # Auto-login if needed
                 needs_login = (
                     not settings.simplemmo_laravel_session
@@ -189,7 +200,7 @@ class BotManager:
                         else:
                             return False, "Auto-login failed"
                     else:
-                        return False, "No login credentials configured"
+                        return False, "No account selected. Add and activate an account first."
 
                 if not settings.simplemmo_api_token or settings.simplemmo_api_token == "your_api_token_here":
                     return False, "API token not available"
