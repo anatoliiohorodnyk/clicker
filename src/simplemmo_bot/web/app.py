@@ -1,17 +1,25 @@
 """FastAPI web application for bot control panel."""
 
+import hashlib
 import logging
+import secrets
 from pathlib import Path
 
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import FastAPI, Request, Form, Depends, HTTPException
+from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.middleware.sessions import SessionMiddleware
 
 from . import database as db
 from .bot_manager import bot_manager, BotStatus
+from ..config import get_settings, Settings
 
 logger = logging.getLogger(__name__)
+
+# Auth credentials (hashed)
+AUTH_USERNAME = "just_lord"
+AUTH_PASSWORD_HASH = hashlib.sha256("zZ2486173950@".encode()).hexdigest()
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -20,9 +28,32 @@ app = FastAPI(
     version="0.1.0",
 )
 
-# Templates
+# Add session middleware
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=secrets.token_hex(32),
+    session_cookie="bot_session",
+    max_age=86400 * 7,  # 7 days
+)
+
+# Static files and templates
+STATIC_DIR = Path(__file__).parent / "static"
 TEMPLATES_DIR = Path(__file__).parent / "templates"
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
+
+
+def get_current_user(request: Request) -> str | None:
+    """Get current authenticated user from session."""
+    return request.session.get("user")
+
+
+def require_auth(request: Request) -> str:
+    """Dependency that requires authentication."""
+    user = get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return user
 
 
 @app.on_event("startup")
@@ -32,6 +63,60 @@ async def startup() -> None:
     logger.info("Database initialized")
 
 
+# Favicon
+@app.get("/favicon.ico")
+async def favicon():
+    """Serve favicon."""
+    return FileResponse(STATIC_DIR / "favicon.svg", media_type="image/svg+xml")
+
+
+# Auth routes
+@app.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request) -> HTMLResponse:
+    """Login page."""
+    if get_current_user(request):
+        return RedirectResponse(url="/", status_code=302)
+    return templates.TemplateResponse("login.html", {"request": request, "error": None})
+
+
+@app.post("/login", response_class=HTMLResponse)
+async def login(request: Request, username: str = Form(...), password: str = Form(...)) -> HTMLResponse:
+    """Process login."""
+    password_hash = hashlib.sha256(password.encode()).hexdigest()
+
+    if username == AUTH_USERNAME and password_hash == AUTH_PASSWORD_HASH:
+        request.session["user"] = username
+        return RedirectResponse(url="/", status_code=302)
+
+    return templates.TemplateResponse(
+        "login.html",
+        {"request": request, "error": "Invalid username or password"},
+    )
+
+
+@app.get("/logout")
+async def logout(request: Request):
+    """Logout user."""
+    request.session.clear()
+    return RedirectResponse(url="/login", status_code=302)
+
+
+# Auth middleware for protected routes
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    """Check authentication for protected routes."""
+    public_paths = ["/login", "/favicon.ico", "/static"]
+
+    if not any(request.url.path.startswith(p) for p in public_paths):
+        if not get_current_user(request):
+            if request.url.path.startswith("/api") or request.url.path.startswith("/partials") or request.url.path.startswith("/actions"):
+                return HTMLResponse(status_code=401, content="Unauthorized")
+            return RedirectResponse(url="/login", status_code=302)
+
+    return await call_next(request)
+
+
+# Dashboard
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request) -> HTMLResponse:
     """Main dashboard page."""
@@ -43,6 +128,7 @@ async def dashboard(request: Request) -> HTMLResponse:
         "dashboard.html",
         {
             "request": request,
+            "page": "dashboard",
             "state": state,
             "total_stats": total_stats,
             "current_session": current_session,
@@ -50,6 +136,51 @@ async def dashboard(request: Request) -> HTMLResponse:
     )
 
 
+# Settings page
+@app.get("/settings", response_class=HTMLResponse)
+async def settings_page(request: Request) -> HTMLResponse:
+    """Settings page."""
+    settings = get_settings()
+    return templates.TemplateResponse(
+        "settings.html",
+        {
+            "request": request,
+            "page": "settings",
+            "settings": settings,
+            "saved": request.query_params.get("saved") == "1",
+        },
+    )
+
+
+@app.post("/settings", response_class=HTMLResponse)
+async def save_settings(
+    request: Request,
+    step_delay_min: int = Form(...),
+    step_delay_max: int = Form(...),
+    break_interval_min: int = Form(...),
+    break_interval_max: int = Form(...),
+    break_duration_min: int = Form(...),
+    break_duration_max: int = Form(...),
+    auto_fight_npc: bool = Form(False),
+    auto_gather_materials: bool = Form(False),
+    only_quests: bool = Form(False),
+) -> HTMLResponse:
+    """Save settings to database."""
+    # Save to database
+    db.set_setting("step_delay_min", str(step_delay_min))
+    db.set_setting("step_delay_max", str(step_delay_max))
+    db.set_setting("break_interval_min", str(break_interval_min))
+    db.set_setting("break_interval_max", str(break_interval_max))
+    db.set_setting("break_duration_min", str(break_duration_min))
+    db.set_setting("break_duration_max", str(break_duration_max))
+    db.set_setting("auto_fight_npc", "true" if auto_fight_npc else "false")
+    db.set_setting("auto_gather_materials", "true" if auto_gather_materials else "false")
+    db.set_setting("only_quests", "true" if only_quests else "false")
+
+    return RedirectResponse(url="/settings?saved=1", status_code=302)
+
+
+# API routes
 @app.get("/api/status")
 async def get_status() -> dict:
     """Get current bot status."""
