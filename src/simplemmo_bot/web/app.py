@@ -10,6 +10,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from . import database as db
 from .bot_manager import bot_manager, BotStatus
@@ -21,6 +22,27 @@ logger = logging.getLogger(__name__)
 AUTH_USERNAME = "just_lord"
 AUTH_PASSWORD_HASH = hashlib.sha256("zZ2486173950@".encode()).hexdigest()
 
+# Static files and templates
+STATIC_DIR = Path(__file__).parent / "static"
+TEMPLATES_DIR = Path(__file__).parent / "templates"
+
+
+class AuthMiddleware(BaseHTTPMiddleware):
+    """Authentication middleware."""
+
+    async def dispatch(self, request: Request, call_next):
+        public_paths = ["/login", "/favicon.ico", "/static"]
+
+        if not any(request.url.path.startswith(p) for p in public_paths):
+            user = request.session.get("user")
+            if not user:
+                if request.url.path.startswith(("/api", "/partials", "/actions")):
+                    return HTMLResponse(status_code=401, content="Unauthorized")
+                return RedirectResponse(url="/login", status_code=302)
+
+        return await call_next(request)
+
+
 # Initialize FastAPI app
 app = FastAPI(
     title="SimpleMMO Bot Panel",
@@ -28,7 +50,12 @@ app = FastAPI(
     version="0.1.0",
 )
 
-# Add session middleware
+# Mount static files
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+# Add middleware (order matters: last added = first executed)
+# AuthMiddleware needs SessionMiddleware, so SessionMiddleware must be added AFTER (executed first)
+app.add_middleware(AuthMiddleware)
 app.add_middleware(
     SessionMiddleware,
     secret_key=secrets.token_hex(32),
@@ -36,24 +63,12 @@ app.add_middleware(
     max_age=86400 * 7,  # 7 days
 )
 
-# Static files and templates
-STATIC_DIR = Path(__file__).parent / "static"
-TEMPLATES_DIR = Path(__file__).parent / "templates"
-app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
 
 def get_current_user(request: Request) -> str | None:
     """Get current authenticated user from session."""
     return request.session.get("user")
-
-
-def require_auth(request: Request) -> str:
-    """Dependency that requires authentication."""
-    user = get_current_user(request)
-    if not user:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    return user
 
 
 @app.on_event("startup")
@@ -99,21 +114,6 @@ async def logout(request: Request):
     """Logout user."""
     request.session.clear()
     return RedirectResponse(url="/login", status_code=302)
-
-
-# Auth middleware for protected routes
-@app.middleware("http")
-async def auth_middleware(request: Request, call_next):
-    """Check authentication for protected routes."""
-    public_paths = ["/login", "/favicon.ico", "/static"]
-
-    if not any(request.url.path.startswith(p) for p in public_paths):
-        if not get_current_user(request):
-            if request.url.path.startswith("/api") or request.url.path.startswith("/partials") or request.url.path.startswith("/actions"):
-                return HTMLResponse(status_code=401, content="Unauthorized")
-            return RedirectResponse(url="/login", status_code=302)
-
-    return await call_next(request)
 
 
 # Dashboard
