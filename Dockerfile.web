@@ -15,11 +15,6 @@ ENV PYTHONPATH=/app/src
 # Create data directory
 RUN mkdir -p /app/data
 
-# Create non-root user for security
-RUN useradd --create-home --shell /bin/bash botuser && \
-    chown -R botuser:botuser /app/data
-USER botuser
-
 # Expose web port
 EXPOSE 8080
 
