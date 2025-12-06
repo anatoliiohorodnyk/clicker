@@ -5,11 +5,14 @@ import random
 import re
 import time
 from dataclasses import dataclass, field
-from typing import Callable
+from typing import Callable, TYPE_CHECKING
 
 from .client import SimpleMMOClient, TravelResult
 from .captcha import CaptchaSolver
 from .config import Settings
+
+if TYPE_CHECKING:
+    from .quests import QuestBot
 
 logger = logging.getLogger(__name__)
 
@@ -71,11 +74,13 @@ class TravelBot:
         settings: Settings,
         client: SimpleMMOClient,
         captcha_solver: CaptchaSolver,
+        quest_bot: "QuestBot | None" = None,
     ) -> None:
         """Initialize travel bot."""
         self.settings = settings
         self.client = client
         self.captcha_solver = captcha_solver
+        self.quest_bot = quest_bot
         self.stats = TravelStats()
         self._running = False
         self._on_step_callback: Callable[[TravelResult, TravelStats], None] | None = None
@@ -323,7 +328,24 @@ class TravelBot:
                         self.settings.break_duration_max
                     )
                     logger.info(f"☕ Taking a break for {break_duration // 60}m {break_duration % 60}s...")
-                    time.sleep(break_duration)
+
+                    break_start_time = time.time()
+
+                    # Run quests during break if quest_bot is available
+                    if self.quest_bot:
+                        logger.info("📜 Running quests during break...")
+                        quest_stats = self.quest_bot.run_quests(continuous=False)
+                        logger.info(
+                            f"📜 Quests done: {quest_stats.quests_succeeded}/{quest_stats.quests_attempted} | "
+                            f"Gold: {quest_stats.gold_earned} | EXP: {quest_stats.exp_earned}"
+                        )
+
+                    # Wait remaining break time if any
+                    elapsed = time.time() - break_start_time
+                    remaining = break_duration - elapsed
+                    if remaining > 0:
+                        logger.info(f"⏳ Waiting remaining break time: {remaining:.0f}s...")
+                        time.sleep(remaining)
 
                     # Schedule next break
                     next_break_at = self.stats.steps_taken + random.randint(
