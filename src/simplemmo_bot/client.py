@@ -656,3 +656,160 @@ class SimpleMMOClient:
         except Exception as e:
             logger.error(f"Error healing: {e}")
             return {"success": False, "error": str(e)}
+
+    def get_player_info(self) -> dict[str, Any]:
+        """
+        Get player information including quest points.
+
+        Returns:
+            Player info dictionary with quest_points, gold, level, etc.
+        """
+        try:
+            url = "https://web.simple-mmo.com/api/web-app"
+
+            headers = {
+                "Accept": "*/*",
+                "Referer": "https://web.simple-mmo.com/quests",
+                "User-Agent": self.DEFAULT_HEADERS["User-Agent"],
+            }
+
+            response = self._client.get(url, headers=headers)
+            response.raise_for_status()
+            return response.json()
+
+        except Exception as e:
+            logger.error(f"Error getting player info: {e}")
+            return {}
+
+    def get_quests(self) -> tuple[list[dict], str | None, str | None]:
+        """
+        Get list of uncompleted quests.
+
+        Returns:
+            Tuple of (quests_list, get_endpoint, perform_endpoint).
+            Endpoints are signed URLs for API calls.
+        """
+        try:
+            # Step 1: Load quests page to get signed URLs
+            quests_page_url = "https://web.simple-mmo.com/quests"
+            logger.debug(f"Loading quests page: {quests_page_url}")
+
+            page_headers = {
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Referer": "https://web.simple-mmo.com/",
+                "User-Agent": self.DEFAULT_HEADERS["User-Agent"],
+            }
+
+            page_response = self._client.get(quests_page_url, headers=page_headers)
+            page_response.raise_for_status()
+            html = page_response.text
+
+            # Step 2: Parse signed URLs from game_data
+            # "quests.get_endpoint":"https:\/\/web.simple-mmo.com\/api\/quests\/get?expires=...&signature=..."
+            get_pattern = re.compile(
+                r'"quests\.get_endpoint"\s*:\s*"(https?:\\?/\\?/web\.simple-mmo\.com\\?/api\\?/quests\\?/get\?expires=\d+(?:\\u0026|&)signature=[a-f0-9]+)"'
+            )
+            get_match = get_pattern.search(html)
+
+            # "quests.perform_endpoint":"https:\/\/web.simple-mmo.com\/api\/quests\/perform?expires=...&signature=..."
+            perform_pattern = re.compile(
+                r'"quests\.perform_endpoint"\s*:\s*"(https?:\\?/\\?/web\.simple-mmo\.com\\?/api\\?/quests\\?/perform\?expires=\d+(?:\\u0026|&)signature=[a-f0-9]+)"'
+            )
+            perform_match = perform_pattern.search(html)
+
+            if not get_match:
+                logger.error("Could not find quests.get_endpoint in page")
+                logger.debug(f"Page content (first 2000 chars): {html[:2000]}")
+                return [], None, None
+
+            # Unescape URLs
+            get_endpoint = get_match.group(1).replace("\\/", "/").replace("\\u0026", "&")
+            perform_endpoint = None
+            if perform_match:
+                perform_endpoint = perform_match.group(1).replace("\\/", "/").replace("\\u0026", "&")
+
+            logger.debug(f"Found quests.get_endpoint: {get_endpoint}")
+            logger.debug(f"Found quests.perform_endpoint: {perform_endpoint}")
+
+            # Step 3: Fetch quests list
+            quest_headers = {
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.settings.simplemmo_api_token}",
+                "Origin": "https://web.simple-mmo.com",
+                "Referer": quests_page_url,
+                "User-Agent": self.DEFAULT_HEADERS["User-Agent"],
+            }
+
+            quest_response = self._client.post(
+                get_endpoint,
+                json={"type": "NOT_COMPLETED"},
+                headers=quest_headers,
+            )
+            quest_response.raise_for_status()
+            result = quest_response.json()
+
+            if result.get("status") == "success":
+                quests = result.get("expeditions", [])
+                logger.info(f"Found {len(quests)} uncompleted quests")
+                return quests, get_endpoint, perform_endpoint
+            else:
+                logger.warning(f"Failed to get quests: {result}")
+                return [], get_endpoint, perform_endpoint
+
+        except Exception as e:
+            logger.error(f"Error getting quests: {e}")
+            return [], None, None
+
+    def perform_quest(self, quest_id: int, perform_endpoint: str) -> dict[str, Any]:
+        """
+        Perform a quest.
+
+        Args:
+            quest_id: The quest/expedition ID.
+            perform_endpoint: Signed API endpoint URL.
+
+        Returns:
+            Quest result dictionary.
+        """
+        try:
+            headers = {
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.settings.simplemmo_api_token}",
+                "Origin": "https://web.simple-mmo.com",
+                "Referer": "https://web.simple-mmo.com/quests",
+                "User-Agent": self.DEFAULT_HEADERS["User-Agent"],
+            }
+            if self.settings.simplemmo_xsrf_token:
+                headers["X-XSRF-TOKEN"] = self.settings.simplemmo_xsrf_token
+
+            payload = {
+                "expedition_id": quest_id,
+                "quantity": 1,
+            }
+
+            response = self._client.post(
+                perform_endpoint,
+                json=payload,
+                headers=headers,
+            )
+            response.raise_for_status()
+            result = response.json()
+
+            if result.get("status") == "success":
+                gold = result.get("gold", 0)
+                exp = result.get("experience", 0)
+                logger.info(f"Quest completed! +{exp} XP, +{gold} gold")
+                return {"success": True, **result}
+            else:
+                logger.warning(f"Quest failed: {result}")
+                return {"success": False, **result}
+
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP error performing quest {quest_id}: {e.response.status_code}")
+            return {"success": False, "error": f"HTTP {e.response.status_code}"}
+        except Exception as e:
+            logger.error(f"Error performing quest {quest_id}: {e}")
+            return {"success": False, "error": str(e)}
