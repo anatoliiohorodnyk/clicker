@@ -28,6 +28,8 @@ class TravelStats:
     exp_earned: int = 0
     captchas_solved: int = 0
     captchas_failed: int = 0
+    deaths: int = 0
+    respawns: int = 0
     errors: int = 0
     start_time: float = field(default_factory=time.time)
 
@@ -55,6 +57,7 @@ class TravelStats:
             f"Items: {self.items_found}\n"
             f"Gold: {self.gold_earned}\n"
             f"EXP: {self.exp_earned}\n"
+            f"Deaths: {self.deaths}, Respawns: {self.respawns}\n"
             f"Captchas: {self.captchas_solved} solved, {self.captchas_failed} failed\n"
             f"Errors: {self.errors}"
         )
@@ -156,6 +159,12 @@ class TravelBot:
         # Parse gold and exp from rewards HTML
         gold, exp = self._parse_npc_rewards(attack_result)
 
+        # Debug: log rewards field if present
+        if "rewards" in attack_result:
+            logger.debug(f"NPC rewards field: {attack_result['rewards']}")
+        else:
+            logger.debug(f"No rewards field in attack result. Keys: {list(attack_result.keys())}")
+
         if won:
             self.stats.npcs_won += 1
             self.stats.exp_earned += exp
@@ -177,9 +186,23 @@ class TravelBot:
 
         gather_result = self.client.gather_material(material_id)
 
-        if gather_result.get("success", True):
-            self.stats.materials_gathered += 1
-            logger.info(f"Gathered {material_name}")
+        # Log full result for debugging
+        logger.debug(f"Material gather result: {gather_result}")
+
+        # Check for errors
+        if gather_result.get("error"):
+            logger.error(f"Material gather failed: {gather_result.get('error')}")
+            return
+
+        if gather_result.get("success", False):
+            gather_count = gather_result.get("gather_count", 1)
+            total_exp = gather_result.get("total_player_exp", 0)
+            skill_exp = gather_result.get("total_skill_exp", 0)
+
+            self.stats.materials_gathered += gather_count
+            self.stats.exp_earned += total_exp
+
+            logger.info(f"Gathered {gather_count}x {material_name}! +{total_exp} XP, +{skill_exp} skill XP")
 
     def _handle_captcha(self, result: TravelResult) -> bool:
         """
@@ -192,6 +215,12 @@ class TravelBot:
 
         # Use the new solve_captcha method that fetches images directly
         answer, prompt = self.captcha_solver.solve_captcha()
+
+        # Check for "already verified" (answer == -1)
+        if answer == -1:
+            logger.info("Already verified - continuing without captcha submission")
+            time.sleep(2)
+            return True
 
         if answer is None:
             logger.error("Failed to solve captcha")
@@ -230,26 +259,78 @@ class TravelBot:
         self._running = True
         self.stats = TravelStats()
 
-        logger.info(f"Starting travel session (max {max_steps} steps)")
+        # Set up break schedule
+        next_break_at = random.randint(
+            self.settings.break_interval_min,
+            self.settings.break_interval_max
+        )
 
-        while self._running and self.stats.steps_taken < max_steps:
+        if max_steps == 0:
+            logger.info("Starting travel session (infinite mode)")
+        else:
+            logger.info(f"Starting travel session (max {max_steps} steps)")
+        logger.info(f"Next break scheduled at step {next_break_at}")
+
+        while self._running and (max_steps == 0 or self.stats.steps_taken < max_steps):
             try:
                 # Take a step
                 result = self.client.travel_step()
 
                 if result.captcha_required:
                     if not self._handle_captcha(result):
-                        logger.error("Captcha failed, stopping")
-                        break
+                        logger.warning("Captcha failed, waiting 60s before retry...")
+                        time.sleep(60)
                     continue
 
                 if not result.success:
+                    # Check if character is dead - need to heal/respawn
+                    if result.action == "dead":
+                        self.stats.deaths += 1
+
+                        if self.settings.use_healer:
+                            # Use healer (limited 3/day)
+                            logger.info("💀 Character is dead! Using healer to respawn...")
+                            heal_result = self.client.heal()
+                            if heal_result.get("success"):
+                                self.stats.respawns += 1
+                                logger.info("💚 Respawned successfully! Continuing travel...")
+                                time.sleep(2)
+                            else:
+                                logger.error(f"Failed to respawn: {heal_result.get('error')}")
+                                logger.info("⏳ Waiting 5 minutes for auto-respawn...")
+                                time.sleep(300)
+                                self.stats.respawns += 1
+                        else:
+                            # Wait for auto-respawn (5 minutes)
+                            logger.info("💀 Character is dead! Waiting 5 minutes for auto-respawn...")
+                            time.sleep(300)
+                            self.stats.respawns += 1
+                            logger.info("💚 Auto-respawned! Continuing travel...")
+
+                        continue
+
                     self.stats.errors += 1
                     logger.warning(f"Step failed: {result.message}")
                     time.sleep(30)
                     continue
 
                 self.stats.steps_taken += 1
+
+                # Check if it's time for a break
+                if self.stats.steps_taken >= next_break_at:
+                    break_duration = random.randint(
+                        self.settings.break_duration_min,
+                        self.settings.break_duration_max
+                    )
+                    logger.info(f"☕ Taking a break for {break_duration // 60}m {break_duration % 60}s...")
+                    time.sleep(break_duration)
+
+                    # Schedule next break
+                    next_break_at = self.stats.steps_taken + random.randint(
+                        self.settings.break_interval_min,
+                        self.settings.break_interval_max
+                    )
+                    logger.info(f"Break finished! Next break at step {next_break_at}")
 
                 # Always accumulate gold and exp from every response
                 step_gold = result.data.get("gold", 0)

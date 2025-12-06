@@ -1,6 +1,7 @@
 """HTTP client for SimpleMMO API."""
 
 import re
+import time
 import random
 import logging
 from typing import Any
@@ -11,6 +12,24 @@ import httpx
 from .config import Settings
 
 logger = logging.getLogger(__name__)
+
+
+def human_delay(base: float = 1.0, std: float = 0.15, min_delay: float = 0.8) -> None:
+    """
+    Sleep for a human-like random duration using normal distribution.
+
+    Args:
+        base: Mean delay in seconds
+        std: Standard deviation
+        min_delay: Minimum delay (floor)
+    """
+    delay = max(min_delay, random.gauss(base, std))
+
+    # 5% chance of a "thinking" pause (human got distracted)
+    if random.random() < 0.05:
+        delay += random.uniform(1.0, 3.0)
+
+    time.sleep(delay)
 
 
 @dataclass
@@ -398,35 +417,49 @@ class SimpleMMOClient:
                 attack_response.raise_for_status()
                 result = attack_response.json()
 
-                logger.debug(f"Attack #{attack_count}: player_hp={result.get('player_hp')}, opponent_hp={result.get('opponent_hp')}")
+                logger.debug(f"Attack #{attack_count}: player_hp={result.get('player_hp')}, opponent_hp={result.get('opponent_hp')}, keys={list(result.keys())}")
 
                 # Store the latest result
                 final_result = result
 
                 # Check if battle is finished
-                opponent_hp = result.get("opponent_hp", 0)
-                player_hp = result.get("player_hp", 0)
+                # Handle None values (can happen if player dies mid-battle)
+                opponent_hp = result.get("opponent_hp")
+                player_hp = result.get("player_hp")
                 battle_result = result.get("result")
+                has_rewards = "rewards" in result and result["rewards"]
 
-                if opponent_hp <= 0:
-                    # Victory!
-                    final_result["win"] = True
-                    logger.info(f"NPC defeated after {attack_count} attacks!")
+                # Battle ends when we have a result field or rewards
+                if battle_result is not None or has_rewards:
+                    if battle_result == "win" or (opponent_hp is not None and opponent_hp <= 0):
+                        final_result["win"] = True
+                        logger.info(f"NPC defeated after {attack_count} attacks!")
+                    else:
+                        final_result["win"] = False
+                        logger.info(f"Lost to NPC after {attack_count} attacks")
                     break
-                elif player_hp <= 0 or battle_result is not None:
-                    # Defeat or battle ended
+                elif player_hp is not None and player_hp <= 0:
+                    # Player died
                     final_result["win"] = False
                     logger.info(f"Lost to NPC after {attack_count} attacks")
                     break
+                elif player_hp is None and opponent_hp is None:
+                    # Both HP are None - likely an error state, check for death message
+                    if result.get("message") or result.get("error"):
+                        logger.warning(f"Battle ended unexpectedly: {result}")
+                        final_result["win"] = False
+                        break
 
-                # Small delay between attacks (0.3-0.6 seconds)
-                import time
-                time.sleep(0.3 + random.random() * 0.3)
+                # Human-like delay between attacks
+                human_delay(base=1.1, std=0.15, min_delay=0.8)
 
             return final_result
 
         except httpx.HTTPStatusError as e:
             logger.error(f"HTTP error attacking NPC {npc_id}: {e.response.status_code}")
+            # Debug: show response body for 404 errors
+            if e.response.status_code == 404:
+                logger.debug(f"404 response body (first 500 chars): {e.response.text[:500]}")
             return {"success": False, "error": f"HTTP {e.response.status_code}"}
         except Exception as e:
             logger.error(f"Error attacking NPC {npc_id}: {e}")
@@ -436,31 +469,372 @@ class SimpleMMOClient:
         """
         Gather a material during travel.
 
+        Uses the same two-step approach as NPC attacks:
+        1. Load the gather page to get the signed API URL
+        2. POST to the signed endpoint to gather
+
         Args:
             material_id: The material identifier to gather.
 
         Returns:
-            Gather result dictionary.
+            Gather result dictionary with total exp gained and gather count.
         """
-        d_1, d_2 = self._generate_coordinates()
-
-        data = {
-            "api_token": self.settings.simplemmo_api_token,
-            "material_id": str(material_id),
-            "d_1": str(d_1),
-            "d_2": str(d_2),
-        }
-
         try:
+            # Step 1: Load the gather page to get the signed API URL
+            gather_page_url = f"https://web.simple-mmo.com/crafting/material/gather/{material_id}?new_page=true"
+            logger.debug(f"Loading material gather page: {gather_page_url}")
+
+            page_headers = {
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Referer": "https://web.simple-mmo.com/travel?new_page=true",
+                "User-Agent": self.DEFAULT_HEADERS["User-Agent"],
+            }
+            if self.settings.simplemmo_xsrf_token:
+                page_headers["X-XSRF-TOKEN"] = self.settings.simplemmo_xsrf_token
+
+            page_response = self._client.get(
+                gather_page_url,
+                headers=page_headers,
+            )
+
+            # Check for redirect (authentication issue)
+            if page_response.status_code in (301, 302, 303, 307, 308):
+                logger.error(f"Got redirect {page_response.status_code} - likely missing/expired session cookies")
+                return {"success": False, "error": "Session expired - update SIMPLEMMO_LARAVEL_SESSION cookie"}
+
+            page_response.raise_for_status()
+            html = page_response.text
+
+            # Step 2: Parse the gather API URL and session ID from game_data
+            # Format: "gathering.gather_endpoint":"https:\/\/web.simple-mmo.com\/api\/crafting\/material\/gather?expires=...&signature=..."
+            gather_endpoint_pattern = re.compile(
+                r'"gathering\.gather_endpoint"\s*:\s*"(https?:\\?/\\?/web\.simple-mmo\.com\\?/api\\?/crafting\\?/material\\?/gather\?expires=\d+(?:\\u0026|&)signature=[a-f0-9]+)"'
+            )
+            endpoint_match = gather_endpoint_pattern.search(html)
+
+            if not endpoint_match:
+                logger.error("Could not find gather API URL in page")
+                logger.debug(f"Page content (first 2000 chars): {html[:2000]}")
+                return {"success": False, "error": "Gather API URL not found"}
+
+            # Unescape the URL
+            gather_api_url = endpoint_match.group(1)
+            gather_api_url = gather_api_url.replace("\\/", "/").replace("\\u0026", "&")
+            logger.debug(f"Found gather API URL: {gather_api_url}")
+
+            # Parse material_session_id
+            session_id_pattern = re.compile(r'"gathering\.material_session_id"\s*:\s*(\d+)')
+            session_match = session_id_pattern.search(html)
+
+            if not session_match:
+                logger.error("Could not find material_session_id in page")
+                return {"success": False, "error": "Material session ID not found"}
+
+            material_session_id = int(session_match.group(1))
+            logger.debug(f"Material session ID: {material_session_id}")
+
+            # Parse available amount (optional, for logging)
+            amount_pattern = re.compile(r'"gathering\.available_amount"\s*:\s*(\d+)')
+            amount_match = amount_pattern.search(html)
+            available_amount = int(amount_match.group(1)) if amount_match else 1
+            logger.debug(f"Available amount: {available_amount}")
+
+            # Step 3: Gather in a loop until is_end is true
+            gather_headers = {
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.settings.simplemmo_api_token}",
+                "Origin": "https://web.simple-mmo.com",
+                "Referer": gather_page_url,
+                "User-Agent": self.DEFAULT_HEADERS["User-Agent"],
+            }
+            if self.settings.simplemmo_xsrf_token:
+                gather_headers["X-XSRF-TOKEN"] = self.settings.simplemmo_xsrf_token
+
+            # Gather loop
+            gather_count = 0
+            iteration = 0
+            max_iterations = 50  # Safety limit
+            total_player_exp = 0
+            total_skill_exp = 0
+            final_result: dict[str, Any] = {}
+
+            while iteration < max_iterations:
+                iteration += 1
+
+                gather_payload = {
+                    "quantity": 1,
+                    "id": material_session_id,
+                }
+
+                gather_response = self._client.post(
+                    gather_api_url,
+                    json=gather_payload,
+                    headers=gather_headers,
+                )
+                gather_response.raise_for_status()
+                result = gather_response.json()
+
+                logger.debug(f"Gather iteration {iteration}: type={result.get('type')}, is_end={result.get('is_end')}")
+
+                # Only count successful gathers
+                if result.get("type") == "success":
+                    gather_count += 1
+                    total_player_exp += result.get("player_experience_gained", 0)
+                    total_skill_exp += result.get("skill_experience_gained", 0)
+
+                # Store the latest result
+                final_result = result
+
+                # Check if gathering is finished
+                if result.get("is_end", False):
+                    logger.info(f"Gathered {gather_count}x material! Total: +{total_player_exp} XP, +{total_skill_exp} skill XP")
+                    break
+
+                # Stop on error
+                if result.get("type") != "success":
+                    logger.warning(f"Gather failed: {result}")
+                    break
+
+                # Human-like delay between gathers
+                human_delay(base=1.15, std=0.1, min_delay=1.0)
+
+            # Add totals to final result
+            final_result["total_player_exp"] = total_player_exp
+            final_result["total_skill_exp"] = total_skill_exp
+            final_result["gather_count"] = gather_count
+            final_result["success"] = True
+
+            return final_result
+
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP error gathering material {material_id}: {e.response.status_code}")
+            return {"success": False, "error": f"HTTP {e.response.status_code}"}
+        except Exception as e:
+            logger.error(f"Error gathering material {material_id}: {e}")
+            return {"success": False, "error": str(e)}
+
+    def heal(self) -> dict[str, Any]:
+        """
+        Heal/respawn the character at the healer.
+
+        Returns:
+            Result dictionary with success status.
+        """
+        try:
+            heal_url = "https://web.simple-mmo.com/api/healer/heal"
+
+            headers = {
+                "Accept": "*/*",
+                "Content-Type": "application/json",
+                "Origin": "https://web.simple-mmo.com",
+                "Referer": "https://web.simple-mmo.com/healer?new_page_refresh=true",
+                "User-Agent": self.DEFAULT_HEADERS["User-Agent"],
+            }
+            if self.settings.simplemmo_xsrf_token:
+                headers["X-XSRF-TOKEN"] = self.settings.simplemmo_xsrf_token
+
             response = self._client.post(
-                "/api/crafting/material/gather",
-                data=data,
+                heal_url,
+                headers=headers,
+                content="",  # Empty body
             )
             response.raise_for_status()
             result = response.json()
-            logger.debug(f"Material gather response: {result}")
-            return result
+
+            if result.get("type") == "success":
+                logger.info(f"💚 Healed: {result.get('result', 'Health restored')}")
+                return {"success": True, "message": result.get("result")}
+            else:
+                logger.warning(f"Heal response: {result}")
+                return {"success": False, "error": result.get("result", "Unknown error")}
+
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP error healing: {e.response.status_code}")
+            return {"success": False, "error": f"HTTP {e.response.status_code}"}
+        except Exception as e:
+            logger.error(f"Error healing: {e}")
+            return {"success": False, "error": str(e)}
+
+    def get_player_info(self) -> dict[str, Any]:
+        """
+        Get player information including quest points.
+
+        Returns:
+            Player info dictionary with quest_points, gold, level, etc.
+        """
+        try:
+            url = "https://web.simple-mmo.com/api/web-app"
+
+            headers = {
+                "Accept": "*/*",
+                "Referer": "https://web.simple-mmo.com/quests",
+                "User-Agent": self.DEFAULT_HEADERS["User-Agent"],
+            }
+
+            response = self._client.get(url, headers=headers)
+            response.raise_for_status()
+            return response.json()
 
         except Exception as e:
-            logger.error(f"Error gathering material {material_id}: {e}")
+            logger.error(f"Error getting player info: {e}")
+            return {}
+
+    def get_quests(self) -> tuple[list[dict], str | None, str | None]:
+        """
+        Get list of uncompleted quests.
+
+        Returns:
+            Tuple of (quests_list, get_endpoint, perform_endpoint).
+            Endpoints are signed URLs for API calls.
+        """
+        try:
+            # Step 1: Load quests page to get signed URLs
+            quests_page_url = "https://web.simple-mmo.com/quests"
+            logger.debug(f"Loading quests page: {quests_page_url}")
+
+            page_headers = {
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Referer": "https://web.simple-mmo.com/",
+                "User-Agent": self.DEFAULT_HEADERS["User-Agent"],
+            }
+
+            page_response = self._client.get(quests_page_url, headers=page_headers)
+            page_response.raise_for_status()
+            html = page_response.text
+
+            # Step 2: Parse signed URLs from page
+            # Try multiple patterns - the format may vary
+
+            # Pattern 1: Standard JSON format with escaped slashes
+            # "quests.get_endpoint":"https:\/\/web.simple-mmo.com\/api\/quests\/get?expires=...&signature=..."
+            get_patterns = [
+                # Escaped slashes with \u0026
+                r'"quests\.get_endpoint"\s*:\s*"(https?:[^"]+/api/quests/get\?[^"]+)"',
+                # Any URL with /api/quests/get
+                r'(https?://web\.simple-mmo\.com/api/quests/get\?expires=\d+&signature=[a-f0-9]+)',
+                # Escaped format
+                r'(https?:\\?/\\?/web\.simple-mmo\.com\\?/api\\?/quests\\?/get\?expires=\d+(?:\\u0026|&)signature=[a-f0-9]+)',
+            ]
+
+            perform_patterns = [
+                r'"quests\.perform_endpoint"\s*:\s*"(https?:[^"]+/api/quests/perform\?[^"]+)"',
+                r'(https?://web\.simple-mmo\.com/api/quests/perform\?expires=\d+&signature=[a-f0-9]+)',
+                r'(https?:\\?/\\?/web\.simple-mmo\.com\\?/api\\?/quests\\?/perform\?expires=\d+(?:\\u0026|&)signature=[a-f0-9]+)',
+            ]
+
+            get_endpoint = None
+            perform_endpoint = None
+
+            # Try each pattern for get_endpoint
+            for pattern in get_patterns:
+                match = re.search(pattern, html)
+                if match:
+                    get_endpoint = match.group(1).replace("\\/", "/").replace("\\u0026", "&")
+                    logger.debug(f"Found get_endpoint with pattern: {pattern[:50]}...")
+                    break
+
+            # Try each pattern for perform_endpoint
+            for pattern in perform_patterns:
+                match = re.search(pattern, html)
+                if match:
+                    perform_endpoint = match.group(1).replace("\\/", "/").replace("\\u0026", "&")
+                    logger.debug(f"Found perform_endpoint with pattern: {pattern[:50]}...")
+                    break
+
+            if not get_endpoint:
+                # Log more context to help debug
+                logger.error("Could not find quests.get_endpoint in page")
+                # Search for any 'quests' or 'endpoint' strings
+                quests_mentions = re.findall(r'.{0,50}quests.{0,50}', html, re.IGNORECASE)[:5]
+                logger.debug(f"Found 'quests' mentions: {quests_mentions}")
+                endpoint_mentions = re.findall(r'.{0,50}endpoint.{0,50}', html, re.IGNORECASE)[:5]
+                logger.debug(f"Found 'endpoint' mentions: {endpoint_mentions}")
+                return [], None, None
+
+            logger.debug(f"Found quests.get_endpoint: {get_endpoint}")
+            logger.debug(f"Found quests.perform_endpoint: {perform_endpoint}")
+
+            # Step 3: Fetch quests list
+            quest_headers = {
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.settings.simplemmo_api_token}",
+                "Origin": "https://web.simple-mmo.com",
+                "Referer": quests_page_url,
+                "User-Agent": self.DEFAULT_HEADERS["User-Agent"],
+            }
+
+            quest_response = self._client.post(
+                get_endpoint,
+                json={"type": "NOT_COMPLETED"},
+                headers=quest_headers,
+            )
+            quest_response.raise_for_status()
+            result = quest_response.json()
+
+            if result.get("status") == "success":
+                quests = result.get("expeditions", [])
+                logger.info(f"Found {len(quests)} uncompleted quests")
+                return quests, get_endpoint, perform_endpoint
+            else:
+                logger.warning(f"Failed to get quests: {result}")
+                return [], get_endpoint, perform_endpoint
+
+        except Exception as e:
+            logger.error(f"Error getting quests: {e}")
+            return [], None, None
+
+    def perform_quest(self, quest_id: int, perform_endpoint: str) -> dict[str, Any]:
+        """
+        Perform a quest.
+
+        Args:
+            quest_id: The quest/expedition ID.
+            perform_endpoint: Signed API endpoint URL.
+
+        Returns:
+            Quest result dictionary.
+        """
+        try:
+            headers = {
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.settings.simplemmo_api_token}",
+                "Origin": "https://web.simple-mmo.com",
+                "Referer": "https://web.simple-mmo.com/quests",
+                "User-Agent": self.DEFAULT_HEADERS["User-Agent"],
+            }
+            if self.settings.simplemmo_xsrf_token:
+                headers["X-XSRF-TOKEN"] = self.settings.simplemmo_xsrf_token
+
+            payload = {
+                "expedition_id": quest_id,
+                "quantity": 1,
+            }
+
+            response = self._client.post(
+                perform_endpoint,
+                json=payload,
+                headers=headers,
+            )
+            response.raise_for_status()
+            result = response.json()
+
+            if result.get("status") == "success":
+                gold = result.get("gold", 0)
+                exp = result.get("experience", 0)
+                logger.info(f"Quest completed! +{exp} XP, +{gold} gold")
+                return {"success": True, **result}
+            else:
+                logger.warning(f"Quest failed: {result}")
+                return {"success": False, **result}
+
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP error performing quest {quest_id}: {e.response.status_code}")
+            return {"success": False, "error": f"HTTP {e.response.status_code}"}
+        except Exception as e:
+            logger.error(f"Error performing quest {quest_id}: {e}")
             return {"success": False, "error": str(e)}

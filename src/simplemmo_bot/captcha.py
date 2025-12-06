@@ -1,6 +1,7 @@
 """Captcha solver using Google Gemini Vision API."""
 
 import re
+import time
 import logging
 from io import BytesIO
 from pathlib import Path
@@ -103,18 +104,55 @@ class CaptchaSolver:
             # Store for debugging
             self._last_captcha_html = html
 
+            # Debug: log page info
+            logger.debug(f"Captcha page status: {response.status_code}, length: {len(html)}")
+
+            # Check for "already verified" message
+            if "already verified" in html.lower() or "do not need to verify" in html.lower():
+                logger.info("Account is already verified - no captcha needed")
+                return -1, "already_verified"  # Special return value
+
+            if "login" in html.lower() or "sign in" in html.lower():
+                logger.error("Captcha page appears to be a login redirect!")
+                logger.debug(f"Page content (first 500 chars): {html[:500]}")
+                return None, None
+
             # Extract image hashes from onclick handlers
-            # Pattern: chooseItem('$2y$10$...', false)
-            hash_pattern = re.compile(r"chooseItem\('(\$2y\$10\$[^']+)',\s*false\)")
-            matches = hash_pattern.findall(html)
+            # Try multiple patterns for different captcha versions
+            hash_patterns = [
+                # Pattern 1: chooseItem('$2y$10$...', false)
+                re.compile(r"chooseItem\('(\$2y\$10\$[^']+)',\s*false\)"),
+                # Pattern 2: chooseItem("$2y$10$...", false) - with double quotes
+                re.compile(r'chooseItem\("(\$2y\$10\$[^"]+)",\s*false\)'),
+                # Pattern 3: data attribute with hash
+                re.compile(r'data-hash="(\$2y\$10\$[^"]+)"'),
+                # Pattern 4: any $2y$10$ hash in single quotes
+                re.compile(r"'(\$2y\$10\$[^']{50,})'"),
+                # Pattern 5: any $2y$10$ hash in double quotes
+                re.compile(r'"(\$2y\$10\$[^"]{50,})"'),
+            ]
 
-            # Get first 4 unique hashes (the visible buttons)
-            image_hashes = matches[:4] if len(matches) >= 4 else None
+            image_hashes = None
+            for i, pattern in enumerate(hash_patterns):
+                matches = pattern.findall(html)
+                if len(matches) >= 4:
+                    image_hashes = matches[:4]
+                    logger.debug(f"Found {len(image_hashes)} image hashes using pattern {i+1}")
+                    break
 
-            if image_hashes:
-                logger.debug(f"Found {len(image_hashes)} image hashes")
-            else:
+            if not image_hashes:
                 logger.warning("Could not extract image hashes from page")
+                # Debug: look for any chooseItem or hash-like patterns
+                if "chooseItem" in html:
+                    logger.debug("Found 'chooseItem' in page, but pattern didn't match")
+                    # Find context around chooseItem
+                    idx = html.find("chooseItem")
+                    logger.debug(f"chooseItem context: {html[max(0,idx-20):idx+100]}")
+                if "$2y$" in html:
+                    logger.debug("Found '$2y$' hash pattern in page")
+                else:
+                    logger.debug("No '$2y$' hash found in page - might be different captcha type")
+                logger.debug(f"Page content (first 2000 chars): {html[:2000]}")
 
             # Extract prompt from the page
             prompt = None
@@ -197,9 +235,8 @@ class CaptchaSolver:
         Returns:
             Index 1-4 of the correct image, or None if failed.
         """
-        try:
-            # Build the prompt for Gemini
-            gemini_prompt = f"""You are solving a SimpleMMO captcha.
+        # Build the prompt for Gemini
+        gemini_prompt = f"""You are solving a SimpleMMO captcha.
 
 The task is: "{prompt}"
 
@@ -214,32 +251,49 @@ IMPORTANT:
 Respond with ONLY a single digit: 1, 2, 3, or 4
 No explanation, just the number."""
 
-            # Prepare content for Gemini
-            content = [gemini_prompt]
+        # Prepare content for Gemini
+        content = [gemini_prompt]
 
-            for i, img in enumerate(images, 1):
-                content.append(f"\n\nImage {i}:")
-                content.append(img)
+        for i, img in enumerate(images, 1):
+            content.append(f"\n\nImage {i}:")
+            content.append(img)
 
-            # Send to Gemini
-            response = self.model.generate_content(content)
-            answer = response.text.strip()
+        # Retry logic for rate limits (429 errors)
+        max_retries = 3
+        retry_delays = [30, 60, 120]  # seconds
 
-            logger.debug(f"Gemini raw response: {answer}")
+        for attempt in range(max_retries + 1):
+            try:
+                # Send to Gemini
+                response = self.model.generate_content(content)
+                answer = response.text.strip()
 
-            # Parse response - expect single digit 1-4
-            for char in answer:
-                if char in "1234":
-                    result = int(char)
-                    logger.info(f"Captcha solved: selected image {result}")
-                    return result
+                logger.debug(f"Gemini raw response: {answer}")
 
-            logger.warning(f"Could not parse Gemini response: {answer}")
-            return None
+                # Parse response - expect single digit 1-4
+                for char in answer:
+                    if char in "1234":
+                        result = int(char)
+                        logger.info(f"Captcha solved: selected image {result}")
+                        return result
 
-        except Exception as e:
-            logger.error(f"Error solving captcha with Gemini: {e}")
-            return None
+                logger.warning(f"Could not parse Gemini response: {answer}")
+                return None
+
+            except Exception as e:
+                error_str = str(e)
+                is_rate_limit = "429" in error_str or "Resource exhausted" in error_str
+
+                if is_rate_limit and attempt < max_retries:
+                    delay = retry_delays[attempt]
+                    logger.warning(f"Gemini rate limited, waiting {delay}s before retry {attempt + 1}/{max_retries}...")
+                    time.sleep(delay)
+                    continue
+
+                logger.error(f"Error solving captcha with Gemini: {e}")
+                return None
+
+        return None
 
     def submit_captcha_answer(self, answer: int) -> bool:
         """

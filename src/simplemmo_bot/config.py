@@ -22,11 +22,19 @@ class Settings(BaseSettings):
     # Bot behavior
     step_delay_min: int = Field(default=3, ge=1, description="Minimum delay between steps (seconds)")
     step_delay_max: int = Field(default=8, ge=1, description="Maximum delay between steps (seconds)")
-    steps_per_session: int = Field(default=100, ge=1, description="Steps before pause")
+    steps_per_session: int = Field(default=100, ge=0, description="Steps before pause (0 = infinite)")
+
+    # Break settings (human-like pauses)
+    break_interval_min: int = Field(default=500, ge=50, description="Min steps before break")
+    break_interval_max: int = Field(default=700, ge=50, description="Max steps before break")
+    break_duration_min: int = Field(default=300, ge=60, description="Min break duration (seconds)")
+    break_duration_max: int = Field(default=420, ge=60, description="Max break duration (seconds)")
 
     # Features
     auto_fight_npc: bool = Field(default=True, description="Automatically fight NPCs")
     auto_gather_materials: bool = Field(default=True, description="Automatically gather materials")
+    use_healer: bool = Field(default=False, description="Use healer on death (limited 3/day) or wait 5min auto-respawn")
+    only_quests: bool = Field(default=False, description="Only run quest automation, skip travel")
 
     # API endpoints
     api_base_url: str = Field(default="https://api.simple-mmo.com")

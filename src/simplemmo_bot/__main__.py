@@ -9,6 +9,7 @@ from .config import get_settings, Settings
 from .client import SimpleMMOClient
 from .captcha import CaptchaSolver
 from .travel import TravelBot, TravelStats
+from .quests import QuestBot, QuestStats
 from .auth import auto_login
 
 
@@ -67,6 +68,13 @@ def run_travel(settings: Settings, steps: int | None = None) -> TravelStats:
             return bot.travel(max_steps=steps)
 
 
+def run_quests(settings: Settings, continuous: bool = False) -> QuestStats:
+    """Run quest bot session."""
+    with SimpleMMOClient(settings) as client:
+        bot = QuestBot(settings, client)
+        return bot.run_quests(continuous=continuous)
+
+
 def main() -> int:
     """Main entry point."""
     parser = argparse.ArgumentParser(
@@ -92,6 +100,12 @@ def main() -> int:
         type=Path,
         default=Path(".env"),
         help="Path to .env file (default: .env)",
+    )
+
+    parser.add_argument(
+        "--quests",
+        action="store_true",
+        help="Run quest automation instead of travel",
     )
 
     args = parser.parse_args()
@@ -157,8 +171,19 @@ def main() -> int:
 
     # Run bot
     try:
-        logger.info("Starting travel bot...")
-        stats = run_travel(settings, steps=args.steps)
+        # Check if we should run quests (CLI flag or env setting)
+        run_quest_mode = args.quests or settings.only_quests
+
+        if run_quest_mode:
+            # In ONLY_QUESTS mode, run continuously (wait for quest points)
+            continuous = settings.only_quests
+            logger.info("Starting quest automation...")
+            if continuous:
+                logger.info("ONLY_QUESTS mode: will run continuously")
+            stats = run_quests(settings, continuous=continuous)
+        else:
+            logger.info("Starting travel bot...")
+            stats = run_travel(settings, steps=args.steps)
 
         print("\n" + str(stats))
 
