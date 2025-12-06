@@ -1,0 +1,34 @@
+{% set is_running = state.status.value in ['running', 'starting'] %}
+{% set is_busy = state.status.value in ['starting', 'stopping'] %}
+
+<div class="controls">
+    {% if not is_running %}
+    <button
+        class="btn btn-primary"
+        hx-post="/actions/start"
+        hx-target="#controls"
+        hx-swap="innerHTML"
+        {% if is_busy %}disabled{% endif %}
+    >
+        <span class="htmx-indicator"><span class="spinner"></span></span>
+        Start Bot
+    </button>
+    {% else %}
+    <button
+        class="btn btn-danger"
+        hx-post="/actions/stop"
+        hx-target="#controls"
+        hx-swap="innerHTML"
+        {% if is_busy %}disabled{% endif %}
+    >
+        <span class="htmx-indicator"><span class="spinner"></span></span>
+        Stop Bot
+    </button>
+    {% endif %}
+</div>
+
+{% if state.error_message %}
+<div style="margin-top: 10px; color: var(--error); font-size: 0.9rem;">
+    Error: {{ state.error_message }}
+</div>
+{% endif %}

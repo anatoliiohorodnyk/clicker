@@ -1,0 +1,40 @@
+{% if state.travel_stats %}
+{% set stats = state.travel_stats %}
+<div class="grid">
+    <div class="card stat-card">
+        <div class="stat-value">{{ "{:,}".format(stats.steps_taken) }}</div>
+        <div class="stat-label">Steps</div>
+    </div>
+    <div class="card stat-card">
+        <div class="stat-value">{{ "{:,}".format(stats.gold_earned) }}</div>
+        <div class="stat-label">Gold</div>
+    </div>
+    <div class="card stat-card">
+        <div class="stat-value">{{ "{:,}".format(stats.exp_earned) }}</div>
+        <div class="stat-label">EXP</div>
+    </div>
+    <div class="card stat-card">
+        <div class="stat-value">{{ "{:,}".format(stats.npcs_won) }}/{{ "{:,}".format(stats.npcs_fought) }}</div>
+        <div class="stat-label">NPCs</div>
+    </div>
+    <div class="card stat-card">
+        <div class="stat-value">{{ "{:,}".format(stats.materials_gathered) }}</div>
+        <div class="stat-label">Materials</div>
+    </div>
+    <div class="card stat-card">
+        <div class="stat-value">{{ "{:,}".format(stats.items_found) }}</div>
+        <div class="stat-label">Items</div>
+    </div>
+</div>
+
+<div class="session-info">
+    <span>Duration: {{ "%.1f"|format(stats.duration / 60) }} min</span>
+    <span>Speed: {{ "%.1f"|format(stats.steps_per_minute) }} steps/min</span>
+    <span>Captchas: {{ stats.captchas_solved }}</span>
+    <span>Errors: {{ stats.errors }}</span>
+</div>
+{% else %}
+<div class="card" style="text-align: center; padding: 40px; color: var(--text-muted);">
+    No active session. Click "Start Bot" to begin.
+</div>
+{% endif %}

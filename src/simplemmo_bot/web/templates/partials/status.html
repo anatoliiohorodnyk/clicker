@@ -1,0 +1,5 @@
+{% set status_class = state.status.value %}
+<span class="status-badge {{ status_class }}">
+    <span class="status-dot"></span>
+    {{ state.status.value | capitalize }}
+</span>

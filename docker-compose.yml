@@ -1,8 +1,13 @@
 services:
-  bot:
-    build: .
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
     env_file:
       - .env
+    ports:
+      - "8080:8080"
     restart: unless-stopped
     volumes:
+      - ./data:/app/data
       - ./logs:/app/logs
