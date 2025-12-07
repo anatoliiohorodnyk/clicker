@@ -2,6 +2,7 @@
 
 import hashlib
 import logging
+import os
 import secrets
 from pathlib import Path
 
@@ -15,6 +16,16 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from . import database as db
 from .bot_manager import bot_manager, BotStatus
 from ..config import get_settings, Settings
+
+# Configure logging based on LOG_LEVEL env var
+log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
+logging.basicConfig(
+    level=getattr(logging, log_level, logging.INFO),
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+# Set level for our modules
+for module in ["simplemmo_bot", "httpx", "httpcore"]:
+    logging.getLogger(module).setLevel(getattr(logging, log_level, logging.INFO))
 
 logger = logging.getLogger(__name__)
 
