@@ -57,7 +57,9 @@ No explanation, just the number."""
         # Determine which provider to use
         self.provider = getattr(settings, 'captcha_provider', 'gemini').lower()
 
-        if self.provider == 'openai':
+        if self.provider == 'cloudflare':
+            self._init_cloudflare(settings)
+        elif self.provider == 'openai':
             self._init_openai(settings)
         else:
             self._init_gemini(settings)
@@ -89,6 +91,28 @@ No explanation, just the number."""
         model_name = getattr(settings, 'gemini_model', 'gemini-2.0-flash')
         self.gemini_model = genai.GenerativeModel(model_name)
         logger.info(f"Using Gemini provider with model: {model_name}")
+
+    def _init_cloudflare(self, settings: Settings) -> None:
+        """Initialize Cloudflare Workers AI (native API)."""
+        self.cf_api_key = getattr(settings, 'openai_api_key', '')
+        self.cf_account_id = getattr(settings, 'cloudflare_account_id', '')
+        self.cf_model = getattr(settings, 'openai_model', '@cf/llava-hf/llava-1.5-7b-hf')
+
+        # Extract account ID from openai_api_base if not set directly
+        if not self.cf_account_id:
+            api_base = getattr(settings, 'openai_api_base', '')
+            # Extract from URL like: https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1
+            import re
+            match = re.search(r'/accounts/([^/]+)/', api_base)
+            if match:
+                self.cf_account_id = match.group(1)
+
+        if not self.cf_api_key:
+            raise ValueError("OPENAI_API_KEY is required for Cloudflare provider")
+        if not self.cf_account_id:
+            raise ValueError("Could not determine Cloudflare account ID. Set OPENAI_API_BASE with account ID.")
+
+        logger.info(f"Using Cloudflare native API with model: {self.cf_model}")
 
     def _init_openai(self, settings: Settings) -> None:
         """Initialize OpenAI-compatible API."""
@@ -280,7 +304,9 @@ No explanation, just the number."""
 
         logger.info(f"Downloaded 4 captcha images, solving with prompt: {prompt}")
 
-        if self.provider == 'openai':
+        if self.provider == 'cloudflare':
+            answer = self._solve_with_cloudflare(images, prompt)
+        elif self.provider == 'openai':
             answer = self._solve_with_openai(images, prompt)
         else:
             answer = self._solve_with_gemini(images, prompt)
@@ -353,6 +379,122 @@ No explanation, just the number."""
                 return None
 
         return None
+
+    def _create_grid_image(self, images: list[Image.Image]) -> Image.Image:
+        """Create a 2x2 grid image from 4 images with numbered labels."""
+        # Get max dimensions
+        max_width = max(img.width for img in images)
+        max_height = max(img.height for img in images)
+
+        # Create grid image with padding for labels
+        padding = 30
+        grid_width = max_width * 2 + padding
+        grid_height = max_height * 2 + padding
+
+        grid = Image.new('RGB', (grid_width, grid_height), 'white')
+
+        # Place images in grid: 1=top-left, 2=top-right, 3=bottom-left, 4=bottom-right
+        positions = [
+            (padding // 2, padding),  # Image 1: top-left
+            (max_width + padding // 2, padding),  # Image 2: top-right
+            (padding // 2, max_height + padding),  # Image 3: bottom-left
+            (max_width + padding // 2, max_height + padding),  # Image 4: bottom-right
+        ]
+
+        for i, (img, pos) in enumerate(zip(images, positions), 1):
+            # Resize image if needed
+            if img.width != max_width or img.height != max_height:
+                img = img.resize((max_width, max_height), Image.Resampling.LANCZOS)
+            # Convert to RGB if needed
+            if img.mode != 'RGB':
+                img = img.convert('RGB')
+            grid.paste(img, pos)
+
+        return grid
+
+    def _solve_with_cloudflare(self, images: list[Image.Image], prompt: str) -> int | None:
+        """Use Cloudflare Workers AI native API to identify the correct image."""
+        if self.is_quota_exhausted():
+            wait_time = self.get_quota_wait_time()
+            logger.warning(f"API quota exhausted. Waiting {wait_time}s until reset...")
+            if wait_time > 300:
+                logger.error(f"Quota exhausted for {wait_time}s - skipping captcha solve")
+                return None
+            time.sleep(wait_time)
+
+        # Create a grid image of all 4 images
+        grid_image = self._create_grid_image(images)
+        img_base64 = self._image_to_base64(grid_image)
+
+        # Build prompt for grid-based selection
+        cf_prompt = f"""This image shows a 2x2 grid of 4 images:
+- Image 1 is in the TOP-LEFT
+- Image 2 is in the TOP-RIGHT
+- Image 3 is in the BOTTOM-LEFT
+- Image 4 is in the BOTTOM-RIGHT
+
+Task: Find the image that shows "{prompt}"
+
+Look at each quadrant carefully and identify which ONE image matches "{prompt}".
+
+Respond with ONLY a single digit: 1, 2, 3, or 4"""
+
+        # Cloudflare native API endpoint
+        api_url = f"https://api.cloudflare.com/client/v4/accounts/{self.cf_account_id}/ai/run/{self.cf_model}"
+
+        payload = {
+            "image": [img_base64],
+            "prompt": cf_prompt,
+            "max_tokens": 50
+        }
+
+        try:
+            response = httpx.post(
+                api_url,
+                json=payload,
+                headers={
+                    "Authorization": f"Bearer {self.cf_api_key}",
+                    "Content-Type": "application/json"
+                },
+                timeout=60.0
+            )
+
+            if response.status_code >= 400:
+                logger.error(f"Cloudflare API error {response.status_code}: {response.text[:500]}")
+
+            response.raise_for_status()
+            result = response.json()
+            logger.debug(f"Cloudflare API raw result: {result}")
+
+            # Parse Cloudflare native response format
+            if result.get("success") and "result" in result:
+                cf_result = result["result"]
+                if isinstance(cf_result, dict) and "response" in cf_result:
+                    answer = cf_result["response"].strip()
+                elif isinstance(cf_result, str):
+                    answer = cf_result.strip()
+                else:
+                    logger.error(f"Unknown Cloudflare result format: {cf_result}")
+                    return None
+
+                logger.debug(f"Cloudflare raw response: {answer}")
+
+                # Extract number from response
+                for char in answer:
+                    if char in "1234":
+                        result_num = int(char)
+                        logger.info(f"Captcha solved: selected image {result_num}")
+                        return result_num
+
+                logger.warning(f"Could not parse Cloudflare response: {answer}")
+                return None
+            else:
+                logger.error(f"Cloudflare API returned error: {result}")
+                return None
+
+        except Exception as e:
+            logger.error(f"Error solving captcha with Cloudflare: {e}")
+            return None
 
     def _solve_with_openai(self, images: list[Image.Image], prompt: str) -> int | None:
         """Use OpenAI-compatible API to identify the correct image."""

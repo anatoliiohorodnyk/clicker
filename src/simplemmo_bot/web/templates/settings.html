@@ -106,9 +106,10 @@
                 <label class="form-label" for="captcha_provider">Provider</label>
                 <select id="captcha_provider" name="captcha_provider" class="form-input" onchange="toggleProviderSettings()">
                     <option value="gemini" {% if captcha_provider == 'gemini' %}selected{% endif %}>Gemini (Google)</option>
+                    <option value="cloudflare" {% if captcha_provider == 'cloudflare' %}selected{% endif %}>Cloudflare Workers AI (free)</option>
                     <option value="openai" {% if captcha_provider == 'openai' %}selected{% endif %}>OpenAI-compatible</option>
                 </select>
-                <p class="form-hint">Choose AI provider for captcha solving. OpenAI-compatible works with Cloudflare AI, custom servers, etc.</p>
+                <p class="form-hint">Cloudflare Workers AI is free and uses native API format. OpenAI-compatible for GPT-4 and others.</p>
             </div>
 
             <div id="gemini-settings" class="provider-settings">
@@ -141,7 +142,31 @@
                     <input type="text" id="openai_model" name="openai_model"
                            class="form-input" value="{{ openai_model }}"
                            placeholder="gpt-4o">
-                    <p class="form-hint">Model name. For Cloudflare AI use: @cf/meta/llama-3.2-11b-vision-instruct</p>
+                    <p class="form-hint">Model name (e.g., gpt-4o, gpt-4o-mini)</p>
+                </div>
+            </div>
+
+            <div id="cloudflare-settings" class="provider-settings" style="display: none;">
+                <div class="form-group">
+                    <label class="form-label" for="cf_api_base">API Base URL (with account ID)</label>
+                    <input type="text" id="cf_api_base" name="openai_api_base"
+                           class="form-input" value="{{ openai_api_base }}"
+                           placeholder="https://api.cloudflare.com/client/v4/accounts/YOUR_ACCOUNT_ID/ai/v1">
+                    <p class="form-hint">Cloudflare API URL with your account ID</p>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="cf_api_key">API Token</label>
+                    <input type="password" id="cf_api_key" name="openai_api_key"
+                           class="form-input" value="{{ openai_api_key }}"
+                           placeholder="your-cloudflare-api-token">
+                    <p class="form-hint">Cloudflare API token with Workers AI permission</p>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="cf_model">Model</label>
+                    <input type="text" id="cf_model" name="openai_model"
+                           class="form-input" value="{{ openai_model }}"
+                           placeholder="@cf/llava-hf/llava-1.5-7b-hf">
+                    <p class="form-hint">Free vision models: @cf/llava-hf/llava-1.5-7b-hf or @cf/unum/uform-gen2-qwen-500m</p>
                 </div>
             </div>
         </div>
@@ -152,6 +177,7 @@
         const provider = document.getElementById('captcha_provider').value;
         document.getElementById('gemini-settings').style.display = provider === 'gemini' ? 'block' : 'none';
         document.getElementById('openai-settings').style.display = provider === 'openai' ? 'block' : 'none';
+        document.getElementById('cloudflare-settings').style.display = provider === 'cloudflare' ? 'block' : 'none';
     }
     toggleProviderSettings();
     </script>
