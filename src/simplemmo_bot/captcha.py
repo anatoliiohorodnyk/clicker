@@ -386,6 +386,10 @@ No explanation, just the number."""
                         logger.error("API quota exhausted. Will retry in 1 hour.")
                         return None
 
+                # Log error details for non-2xx responses before raising
+                if response.status_code >= 400:
+                    logger.error(f"API error {response.status_code}: {response.text[:500]}")
+
                 response.raise_for_status()
                 result = response.json()
                 logger.debug(f"OpenAI API raw result: {result}")
