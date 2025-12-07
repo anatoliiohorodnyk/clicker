@@ -1,0 +1,190 @@
+{% extends "base.html" %}
+
+{% block title %}Settings - Don Quixote Bot{% endblock %}
+
+{% block content %}
+<header>
+    <h1>Settings</h1>
+</header>
+
+{% if saved %}
+<div class="alert alert-success">Settings saved successfully! Changes will apply on next bot start.</div>
+{% endif %}
+
+<form method="post" action="/settings">
+    <div class="section">
+        <div class="section-title">Step Delays</div>
+        <div class="card">
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label" for="step_delay_min">Minimum Delay (seconds)</label>
+                    <input type="number" id="step_delay_min" name="step_delay_min"
+                           class="form-input" min="1" max="60"
+                           value="{{ settings.step_delay_min }}">
+                    <p class="form-hint">Minimum time between steps</p>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="step_delay_max">Maximum Delay (seconds)</label>
+                    <input type="number" id="step_delay_max" name="step_delay_max"
+                           class="form-input" min="1" max="60"
+                           value="{{ settings.step_delay_max }}">
+                    <p class="form-hint">Maximum time between steps</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="section">
+        <div class="section-title">Break Settings</div>
+        <div class="card">
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label" for="break_interval_min">Break After (min steps)</label>
+                    <input type="number" id="break_interval_min" name="break_interval_min"
+                           class="form-input" min="50" max="2000"
+                           value="{{ settings.break_interval_min }}">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="break_interval_max">Break After (max steps)</label>
+                    <input type="number" id="break_interval_max" name="break_interval_max"
+                           class="form-input" min="50" max="2000"
+                           value="{{ settings.break_interval_max }}">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label" for="break_duration_min">Break Duration (min seconds)</label>
+                    <input type="number" id="break_duration_min" name="break_duration_min"
+                           class="form-input" min="60" max="3600"
+                           value="{{ settings.break_duration_min }}">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="break_duration_max">Break Duration (max seconds)</label>
+                    <input type="number" id="break_duration_max" name="break_duration_max"
+                           class="form-input" min="60" max="3600"
+                           value="{{ settings.break_duration_max }}">
+                </div>
+            </div>
+            <p class="form-hint">Bot will take breaks between min-max steps, lasting min-max seconds. During breaks, quests will be executed.</p>
+        </div>
+    </div>
+
+    <div class="section">
+        <div class="section-title">Features</div>
+        <div class="card">
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" name="auto_fight_npc" value="true"
+                           {% if settings.auto_fight_npc %}checked{% endif %}>
+                    Auto Fight NPCs
+                </label>
+                <p class="form-hint">Automatically attack NPCs when encountered</p>
+            </div>
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" name="auto_gather_materials" value="true"
+                           {% if settings.auto_gather_materials %}checked{% endif %}>
+                    Auto Gather Materials
+                </label>
+                <p class="form-hint">Automatically gather materials when found</p>
+            </div>
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" name="only_quests" value="true"
+                           {% if settings.only_quests %}checked{% endif %}>
+                    Only Quests Mode
+                </label>
+                <p class="form-hint">Only run quest automation, skip travel entirely</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="section">
+        <div class="section-title">Captcha AI Provider</div>
+        <div class="card">
+            <div class="form-group">
+                <label class="form-label" for="captcha_provider">Provider</label>
+                <select id="captcha_provider" name="captcha_provider" class="form-input" onchange="toggleProviderSettings()">
+                    <option value="gemini" {% if captcha_provider == 'gemini' %}selected{% endif %}>Gemini (Google)</option>
+                    <option value="cloudflare" {% if captcha_provider == 'cloudflare' %}selected{% endif %}>Cloudflare Workers AI (free)</option>
+                    <option value="openai" {% if captcha_provider == 'openai' %}selected{% endif %}>OpenAI-compatible</option>
+                </select>
+                <p class="form-hint">Cloudflare Workers AI is free and uses native API format. OpenAI-compatible for GPT-4 and others.</p>
+            </div>
+
+            <div id="gemini-settings" class="provider-settings">
+                <div class="form-group">
+                    <label class="form-label" for="gemini_model">Gemini Model</label>
+                    <input type="text" id="gemini_model" name="gemini_model"
+                           class="form-input" value="{{ gemini_model }}"
+                           placeholder="gemini-2.0-flash">
+                    <p class="form-hint">Model name (e.g., gemini-2.0-flash, gemini-1.5-pro)</p>
+                </div>
+            </div>
+
+            <div id="openai-settings" class="provider-settings" style="display: none;">
+                <div class="form-group">
+                    <label class="form-label" for="openai_api_base">API Base URL</label>
+                    <input type="text" id="openai_api_base" name="openai_api_base"
+                           class="form-input" value="{{ openai_api_base }}"
+                           placeholder="https://api.openai.com/v1">
+                    <p class="form-hint">Base URL for OpenAI-compatible API</p>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="openai_api_key">API Key</label>
+                    <input type="password" id="openai_api_key" name="openai_api_key"
+                           class="form-input" value="{{ openai_api_key }}"
+                           placeholder="sk-...">
+                    <p class="form-hint">API key for the provider</p>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="openai_model">Model</label>
+                    <input type="text" id="openai_model" name="openai_model"
+                           class="form-input" value="{{ openai_model }}"
+                           placeholder="gpt-4o">
+                    <p class="form-hint">Model name (e.g., gpt-4o, gpt-4o-mini)</p>
+                </div>
+            </div>
+
+            <div id="cloudflare-settings" class="provider-settings" style="display: none;">
+                <div class="form-group">
+                    <label class="form-label" for="cf_api_base">API Base URL (with account ID)</label>
+                    <input type="text" id="cf_api_base" name="openai_api_base"
+                           class="form-input" value="{{ openai_api_base }}"
+                           placeholder="https://api.cloudflare.com/client/v4/accounts/YOUR_ACCOUNT_ID/ai/v1">
+                    <p class="form-hint">Cloudflare API URL with your account ID</p>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="cf_api_key">API Token</label>
+                    <input type="password" id="cf_api_key" name="openai_api_key"
+                           class="form-input" value="{{ openai_api_key }}"
+                           placeholder="your-cloudflare-api-token">
+                    <p class="form-hint">Cloudflare API token with Workers AI permission</p>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="cf_model">Model</label>
+                    <input type="text" id="cf_model" name="openai_model"
+                           class="form-input" value="{{ openai_model }}"
+                           placeholder="@cf/llava-hf/llava-1.5-7b-hf">
+                    <p class="form-hint">Free vision models: @cf/llava-hf/llava-1.5-7b-hf or @cf/unum/uform-gen2-qwen-500m</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    function toggleProviderSettings() {
+        const provider = document.getElementById('captcha_provider').value;
+        document.getElementById('gemini-settings').style.display = provider === 'gemini' ? 'block' : 'none';
+        document.getElementById('openai-settings').style.display = provider === 'openai' ? 'block' : 'none';
+        document.getElementById('cloudflare-settings').style.display = provider === 'cloudflare' ? 'block' : 'none';
+    }
+    toggleProviderSettings();
+    </script>
+
+    <div class="controls">
+        <button type="submit" class="btn btn-primary">Save Settings</button>
+        <a href="/settings" class="btn btn-secondary">Reset</a>
+    </div>
+</form>
+{% endblock %}

@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+
+{% block title %}Accounts - Don Quixote Bot{% endblock %}
+
+{% block content %}
+<header>
+    <h1>Accounts</h1>
+    <button class="btn btn-primary" onclick="showAddForm()">Add Account</button>
+</header>
+
+{% if message %}
+<div class="alert alert-success">{{ message }}</div>
+{% endif %}
+
+{% if error %}
+<div class="alert alert-error">{{ error }}</div>
+{% endif %}
+
+<!-- Add/Edit Form (hidden by default) -->
+<div id="account-form" class="card section" style="display: none;">
+    <form method="post" action="/accounts">
+        <input type="hidden" id="form-action" name="action" value="create">
+        <input type="hidden" id="account-id" name="account_id" value="">
+
+        <h2 id="form-title" style="margin-bottom: 20px;">Add Account</h2>
+
+        <div class="form-group">
+            <label class="form-label" for="name">Account Name</label>
+            <input type="text" id="name" name="name" class="form-input" required
+                   placeholder="e.g. Main, Alt, Farm">
+            <p class="form-hint">A friendly name to identify this account</p>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label class="form-label" for="email">Email</label>
+                <input type="email" id="email" name="email" class="form-input" required
+                       placeholder="account@example.com">
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="password">Password</label>
+                <input type="password" id="password" name="password" class="form-input" required>
+            </div>
+        </div>
+
+        <div class="controls">
+            <button type="submit" class="btn btn-primary">Save Account</button>
+            <button type="button" class="btn btn-secondary" onclick="hideForm()">Cancel</button>
+        </div>
+    </form>
+</div>
+
+<!-- Accounts List -->
+<div class="section">
+    <div class="section-title">Your Accounts ({{ accounts|length }})</div>
+
+    {% if accounts %}
+    <div class="accounts-list">
+        {% for account in accounts %}
+        <div class="card account-card {% if account.is_active %}active{% endif %}">
+            <div class="account-info">
+                <div class="account-name">
+                    {{ account.name }}
+                    {% if account.is_active %}
+                    <span class="badge">Active</span>
+                    {% endif %}
+                </div>
+                <div class="account-email">{{ account.email }}</div>
+            </div>
+            <div class="account-actions">
+                {% if not account.is_active %}
+                <form method="post" action="/accounts" style="display: inline;">
+                    <input type="hidden" name="action" value="activate">
+                    <input type="hidden" name="account_id" value="{{ account.id }}">
+                    <button type="submit" class="btn btn-primary btn-sm">Activate</button>
+                </form>
+                {% endif %}
+                <button class="btn btn-secondary btn-sm" onclick="editAccount({{ account.id }}, '{{ account.name }}', '{{ account.email }}')">Edit</button>
+                {% if not account.is_active %}
+                <form method="post" action="/accounts" style="display: inline;" onsubmit="return confirm('Delete this account?');">
+                    <input type="hidden" name="action" value="delete">
+                    <input type="hidden" name="account_id" value="{{ account.id }}">
+                    <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+                </form>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="card" style="text-align: center; padding: 40px; color: var(--text-muted);">
+        No accounts yet. Click "Add Account" to get started.
+    </div>
+    {% endif %}
+</div>
+
+<style>
+    .accounts-list {
+        display: flex;
+        flex-direction: column;
+        gap: 15px;
+    }
+
+    .account-card {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 20px;
+    }
+
+    .account-card.active {
+        border: 2px solid var(--success);
+    }
+
+    .account-name {
+        font-size: 1.1rem;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .account-email {
+        color: var(--text-muted);
+        font-size: 0.9rem;
+        margin-top: 4px;
+    }
+
+    .account-actions {
+        display: flex;
+        gap: 10px;
+    }
+
+    .badge {
+        background: var(--success);
+        color: white;
+        padding: 4px 10px;
+        border-radius: 12px;
+        font-size: 0.75rem;
+        font-weight: 500;
+    }
+
+    .btn-sm {
+        padding: 8px 16px;
+        font-size: 0.9rem;
+    }
+</style>
+
+<script>
+    function showAddForm() {
+        document.getElementById('form-title').textContent = 'Add Account';
+        document.getElementById('form-action').value = 'create';
+        document.getElementById('account-id').value = '';
+        document.getElementById('name').value = '';
+        document.getElementById('email').value = '';
+        document.getElementById('password').value = '';
+        document.getElementById('password').required = true;
+        document.getElementById('account-form').style.display = 'block';
+        document.getElementById('name').focus();
+    }
+
+    function editAccount(id, name, email) {
+        document.getElementById('form-title').textContent = 'Edit Account';
+        document.getElementById('form-action').value = 'update';
+        document.getElementById('account-id').value = id;
+        document.getElementById('name').value = name;
+        document.getElementById('email').value = email;
+        document.getElementById('password').value = '';
+        document.getElementById('password').required = false;
+        document.getElementById('password').placeholder = 'Leave empty to keep current';
+        document.getElementById('account-form').style.display = 'block';
+        document.getElementById('name').focus();
+    }
+
+    function hideForm() {
+        document.getElementById('account-form').style.display = 'none';
+        document.getElementById('password').placeholder = '';
+    }
+</script>
+{% endblock %}

@@ -62,7 +62,9 @@ def run_travel(settings: Settings, steps: int | None = None) -> TravelStats:
     """Run travel bot session."""
     with SimpleMMOClient(settings) as client:
         with CaptchaSolver(settings) as solver:
-            bot = TravelBot(settings, client, solver)
+            # Create quest bot for running quests during breaks
+            quest_bot = QuestBot(settings, client)
+            bot = TravelBot(settings, client, solver, quest_bot=quest_bot)
             bot.on_step(on_step_update)
 
             return bot.travel(max_steps=steps)

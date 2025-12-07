@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+
+{% block content %}
+<header>
+    <h1>SimpleMMO Bot</h1>
+    <div id="status-badge" hx-get="/partials/status" hx-trigger="every 2s">
+        {% include "partials/status.html" %}
+    </div>
+</header>
+
+<div class="section">
+    <div class="section-title">Controls</div>
+    <div id="controls" hx-get="/partials/controls" hx-trigger="every 2s">
+        {% include "partials/controls.html" %}
+    </div>
+</div>
+
+<div class="section">
+    <div class="section-title">Current Session</div>
+    <div id="stats" hx-get="/partials/stats" hx-trigger="every 3s">
+        {% include "partials/stats.html" %}
+    </div>
+</div>
+
+<div class="section">
+    <div class="section-title">All Time Statistics</div>
+    <div class="grid">
+        <div class="card stat-card">
+            <div class="stat-value">{{ "{:,}".format(total_stats.total_sessions) }}</div>
+            <div class="stat-label">Sessions</div>
+        </div>
+        <div class="card stat-card">
+            <div class="stat-value">{{ "{:,}".format(total_stats.total_steps) }}</div>
+            <div class="stat-label">Total Steps</div>
+        </div>
+        <div class="card stat-card">
+            <div class="stat-value">{{ "{:,}".format(total_stats.total_gold) }}</div>
+            <div class="stat-label">Total Gold</div>
+        </div>
+        <div class="card stat-card">
+            <div class="stat-value">{{ "{:,}".format(total_stats.total_exp) }}</div>
+            <div class="stat-label">Total EXP</div>
+        </div>
+        <div class="card stat-card">
+            <div class="stat-value">{{ "{:,}".format(total_stats.total_npcs_won) }}/{{ "{:,}".format(total_stats.total_npcs) }}</div>
+            <div class="stat-label">NPCs Won</div>
+        </div>
+        <div class="card stat-card">
+            <div class="stat-value">{{ "{:,}".format(total_stats.total_materials) }}</div>
+            <div class="stat-label">Materials</div>
+        </div>
+        <div class="card stat-card">
+            <div class="stat-value">{{ "{:,}".format(total_stats.total_quests) }}</div>
+            <div class="stat-label">Quests</div>
+        </div>
+        <div class="card stat-card">
+            <div class="stat-value">{{ "{:,}".format(total_stats.total_captchas) }}</div>
+            <div class="stat-label">Captchas</div>
+        </div>
+    </div>
+</div>
+{% endblock %}
