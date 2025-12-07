@@ -101,6 +101,39 @@ No explanation, just the number."""
 
         logger.info(f"Using OpenAI provider: {self.openai_api_base} with model: {self.openai_model}")
 
+        # Accept Cloudflare model license if needed (for Llama models)
+        if 'cloudflare.com' in self.openai_api_base and 'llama' in self.openai_model.lower():
+            self._accept_cloudflare_license()
+
+    def _accept_cloudflare_license(self) -> None:
+        """Accept Cloudflare Workers AI model license (required for Llama models)."""
+        try:
+            api_url = f"{self.openai_api_base.rstrip('/')}/chat/completions"
+            payload = {
+                "model": self.openai_model,
+                "messages": [{"role": "user", "content": "agree"}],
+                "max_tokens": 10
+            }
+
+            response = httpx.post(
+                api_url,
+                json=payload,
+                headers={
+                    "Authorization": f"Bearer {self.openai_api_key}",
+                    "Content-Type": "application/json"
+                },
+                timeout=30.0
+            )
+
+            if response.status_code == 200:
+                logger.info("Cloudflare model license accepted successfully")
+            elif "already accepted" in response.text.lower() or response.status_code == 200:
+                logger.info("Cloudflare model license was already accepted")
+            else:
+                logger.debug(f"License acceptance response: {response.status_code} - {response.text[:200]}")
+        except Exception as e:
+            logger.warning(f"Could not auto-accept Cloudflare license: {e}")
+
     def close(self) -> None:
         """Close resources."""
         self._http_client.close()
