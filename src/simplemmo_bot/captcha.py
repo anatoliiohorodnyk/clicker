@@ -216,10 +216,13 @@ No explanation, just the number."""
             logger.error(f"Failed to download image from {url}: {e}")
             return None
 
-    def _image_to_base64(self, img: Image.Image) -> str:
+    def _image_to_base64(self, img: Image.Image, format: str = "PNG") -> str:
         """Convert PIL Image to base64 string."""
+        # Convert to RGB if needed (for JPEG compatibility)
+        if format == "JPEG" and img.mode in ("RGBA", "P"):
+            img = img.convert("RGB")
         buffer = BytesIO()
-        img.save(buffer, format="PNG")
+        img.save(buffer, format=format)
         return base64.b64encode(buffer.getvalue()).decode("utf-8")
 
     def _get_captcha_page(self) -> tuple[str | None, list[str] | None]:
@@ -454,7 +457,8 @@ No explanation, just the number."""
 
         # Create a grid image of all 4 images
         grid_image = self._create_grid_image(images)
-        img_base64 = self._image_to_base64(grid_image)
+        # Use JPEG format - Cloudflare LLaVA has issues with PNG
+        img_base64 = self._image_to_base64(grid_image, format="JPEG")
 
         # Build prompt for grid-based selection
         cf_prompt = f"""This image shows a 2x2 grid of 4 images:
@@ -472,8 +476,9 @@ Respond with ONLY a single digit: 1, 2, 3, or 4"""
         # Cloudflare native API endpoint
         api_url = f"https://api.cloudflare.com/client/v4/accounts/{self.cf_account_id}/ai/run/{self.cf_model}"
 
+        # Cloudflare expects image as a single base64 string, not an array
         payload = {
-            "image": [img_base64],
+            "image": img_base64,
             "prompt": cf_prompt,
             "max_tokens": 50
         }
