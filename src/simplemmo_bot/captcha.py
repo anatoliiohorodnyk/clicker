@@ -114,6 +114,36 @@ No explanation, just the number."""
 
         logger.info(f"Using Cloudflare native API with model: {self.cf_model}")
 
+        # Accept license if needed (for Llama models)
+        if 'llama' in self.cf_model.lower():
+            self._accept_cloudflare_native_license()
+
+    def _accept_cloudflare_native_license(self) -> None:
+        """Accept Cloudflare Workers AI model license via native API."""
+        try:
+            api_url = f"https://api.cloudflare.com/client/v4/accounts/{self.cf_account_id}/ai/run/{self.cf_model}"
+            payload = {
+                "prompt": "agree",
+                "max_tokens": 10
+            }
+
+            response = httpx.post(
+                api_url,
+                json=payload,
+                headers={
+                    "Authorization": f"Bearer {self.cf_api_key}",
+                    "Content-Type": "application/json"
+                },
+                timeout=30.0
+            )
+
+            if response.status_code == 200:
+                logger.info("Cloudflare model license accepted successfully")
+            else:
+                logger.debug(f"License acceptance response: {response.status_code} - {response.text[:200]}")
+        except Exception as e:
+            logger.warning(f"Could not auto-accept Cloudflare license: {e}")
+
     def _init_openai(self, settings: Settings) -> None:
         """Initialize OpenAI-compatible API."""
         self.openai_api_key = getattr(settings, 'openai_api_key', '')
