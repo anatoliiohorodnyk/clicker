@@ -141,15 +141,23 @@ async def dashboard(request: Request) -> HTMLResponse:
 async def settings_page(request: Request) -> HTMLResponse:
     """Settings page."""
     settings = get_settings()
-    # Get gemini_model from database or use default from settings
+    # Get captcha settings from database or use defaults
+    captcha_provider = db.get_setting("captcha_provider", settings.captcha_provider)
     gemini_model = db.get_setting("gemini_model", settings.gemini_model)
+    openai_api_base = db.get_setting("openai_api_base", settings.openai_api_base)
+    openai_api_key = db.get_setting("openai_api_key", settings.openai_api_key)
+    openai_model = db.get_setting("openai_model", settings.openai_model)
     return templates.TemplateResponse(
         "settings.html",
         {
             "request": request,
             "page": "settings",
             "settings": settings,
+            "captcha_provider": captcha_provider,
             "gemini_model": gemini_model,
+            "openai_api_base": openai_api_base,
+            "openai_api_key": openai_api_key,
+            "openai_model": openai_model,
             "saved": request.query_params.get("saved") == "1",
         },
     )
@@ -167,7 +175,11 @@ async def save_settings(
     auto_fight_npc: bool = Form(False),
     auto_gather_materials: bool = Form(False),
     only_quests: bool = Form(False),
-    gemini_model: str = Form("gemini-1.5-flash"),
+    captcha_provider: str = Form("gemini"),
+    gemini_model: str = Form("gemini-2.0-flash"),
+    openai_api_base: str = Form("https://api.openai.com/v1"),
+    openai_api_key: str = Form(""),
+    openai_model: str = Form("gpt-4o"),
 ) -> HTMLResponse:
     """Save settings to database."""
     # Save to database
@@ -180,7 +192,11 @@ async def save_settings(
     db.set_setting("auto_fight_npc", "true" if auto_fight_npc else "false")
     db.set_setting("auto_gather_materials", "true" if auto_gather_materials else "false")
     db.set_setting("only_quests", "true" if only_quests else "false")
+    db.set_setting("captcha_provider", captcha_provider)
     db.set_setting("gemini_model", gemini_model)
+    db.set_setting("openai_api_base", openai_api_base)
+    db.set_setting("openai_api_key", openai_api_key)
+    db.set_setting("openai_model", openai_model)
 
     return RedirectResponse(url="/settings?saved=1", status_code=302)
 

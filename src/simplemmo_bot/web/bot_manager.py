@@ -165,14 +165,24 @@ class BotManager:
             try:
                 settings = get_settings()
 
-                # Validate settings
-                if not settings.gemini_api_key or settings.gemini_api_key == "your_gemini_api_key_here":
-                    return False, "GEMINI_API_KEY not configured"
+                # Apply captcha settings from database
+                captcha_provider = db.get_setting("captcha_provider", "gemini")
+                settings.captcha_provider = captcha_provider
 
-                # Apply settings from database
-                gemini_model = db.get_setting("gemini_model", "")
-                if gemini_model:
-                    settings.gemini_model = gemini_model
+                if captcha_provider == "openai":
+                    openai_api_key = db.get_setting("openai_api_key", "")
+                    if not openai_api_key:
+                        return False, "OPENAI_API_KEY not configured for OpenAI provider"
+                    settings.openai_api_key = openai_api_key
+                    settings.openai_api_base = db.get_setting("openai_api_base", "https://api.openai.com/v1")
+                    settings.openai_model = db.get_setting("openai_model", "gpt-4o")
+                else:
+                    # Gemini provider
+                    if not settings.gemini_api_key or settings.gemini_api_key == "your_gemini_api_key_here":
+                        return False, "GEMINI_API_KEY not configured"
+                    gemini_model = db.get_setting("gemini_model", "")
+                    if gemini_model:
+                        settings.gemini_model = gemini_model
 
                 # Get active account from database
                 active_account = db.get_active_account()

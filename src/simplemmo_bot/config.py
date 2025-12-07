@@ -9,8 +9,14 @@ class Settings(BaseSettings):
 
     # API credentials
     simplemmo_api_token: str = Field(default="", description="SimpleMMO API token (auto-obtained if empty)")
-    gemini_api_key: str = Field(..., description="Google Gemini API key for captcha")
-    gemini_model: str = Field(default="gemini-1.5-flash", description="Gemini model for captcha solving")
+    gemini_api_key: str = Field(default="", description="Google Gemini API key for captcha")
+    gemini_model: str = Field(default="gemini-2.0-flash", description="Gemini model for captcha solving")
+
+    # Captcha provider settings
+    captcha_provider: str = Field(default="gemini", description="Captcha AI provider: gemini or openai")
+    openai_api_key: str = Field(default="", description="OpenAI API key (or compatible)")
+    openai_api_base: str = Field(default="https://api.openai.com/v1", description="OpenAI API base URL")
+    openai_model: str = Field(default="gpt-4o", description="OpenAI model for captcha solving")
 
     # Login credentials (for auto-login)
     simplemmo_email: str = Field(default="", description="SimpleMMO login email")
