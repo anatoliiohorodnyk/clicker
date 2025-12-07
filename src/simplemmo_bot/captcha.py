@@ -388,8 +388,26 @@ No explanation, just the number."""
 
                 response.raise_for_status()
                 result = response.json()
+                logger.debug(f"OpenAI API raw result: {result}")
 
-                answer = result["choices"][0]["message"]["content"].strip()
+                # Handle different response formats (OpenAI vs Cloudflare AI)
+                if "choices" in result:
+                    # Standard OpenAI format
+                    answer = result["choices"][0]["message"]["content"].strip()
+                elif "result" in result:
+                    # Cloudflare AI format
+                    cf_result = result["result"]
+                    if isinstance(cf_result, dict) and "response" in cf_result:
+                        answer = cf_result["response"].strip()
+                    elif isinstance(cf_result, str):
+                        answer = cf_result.strip()
+                    else:
+                        logger.error(f"Unknown Cloudflare result format: {cf_result}")
+                        return None
+                else:
+                    logger.error(f"Unknown API response format: {result}")
+                    return None
+
                 logger.debug(f"OpenAI raw response: {answer}")
 
                 for char in answer:
