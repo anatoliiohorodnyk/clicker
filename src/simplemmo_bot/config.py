@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     # API credentials
     simplemmo_api_token: str = Field(default="", description="SimpleMMO API token (auto-obtained if empty)")
     gemini_api_key: str = Field(..., description="Google Gemini API key for captcha")
+    gemini_model: str = Field(default="gemini-1.5-flash", description="Gemini model for captcha solving")
 
     # Login credentials (for auto-login)
     simplemmo_email: str = Field(default="", description="SimpleMMO login email")

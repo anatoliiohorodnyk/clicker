@@ -37,7 +37,10 @@ class CaptchaSolver:
         """Initialize captcha solver with Gemini API."""
         self.settings = settings
         genai.configure(api_key=settings.gemini_api_key)
-        self.model = genai.GenerativeModel("gemini-2.0-flash")
+        model_name = getattr(settings, 'gemini_model', 'gemini-1.5-flash')
+        self.model = genai.GenerativeModel(model_name)
+        self._quota_exhausted_until: float = 0  # Timestamp when quota exhaustion expires
+        logger.info(f"Using Gemini model: {model_name}")
 
         # Setup cookies for web authentication (Laravel app)
         cookies = {}
@@ -224,6 +227,15 @@ class CaptchaSolver:
         answer = self._solve_with_gemini(images, prompt)
         return answer, prompt
 
+    def is_quota_exhausted(self) -> bool:
+        """Check if Gemini API quota is currently exhausted."""
+        return time.time() < self._quota_exhausted_until
+
+    def get_quota_wait_time(self) -> int:
+        """Get seconds until quota resets (0 if not exhausted)."""
+        remaining = self._quota_exhausted_until - time.time()
+        return max(0, int(remaining))
+
     def _solve_with_gemini(self, images: list[Image.Image], prompt: str) -> int | None:
         """
         Use Gemini to identify the correct image.
@@ -235,6 +247,15 @@ class CaptchaSolver:
         Returns:
             Index 1-4 of the correct image, or None if failed.
         """
+        # Check if quota is exhausted
+        if self.is_quota_exhausted():
+            wait_time = self.get_quota_wait_time()
+            logger.warning(f"Gemini API quota exhausted. Waiting {wait_time}s until reset...")
+            if wait_time > 300:  # If more than 5 minutes, don't block
+                logger.error(f"Quota exhausted for {wait_time}s - skipping captcha solve")
+                return None
+            time.sleep(wait_time)
+
         # Build the prompt for Gemini
         gemini_prompt = f"""You are solving a SimpleMMO captcha.
 
@@ -281,8 +302,17 @@ No explanation, just the number."""
                 return None
 
             except Exception as e:
-                error_str = str(e)
-                is_rate_limit = "429" in error_str or "Resource exhausted" in error_str
+                error_str = str(e).lower()
+                is_rate_limit = "429" in error_str or "resource" in error_str and "exhausted" in error_str
+                is_quota_exhausted = "quota" in error_str or "exhausted" in error_str
+
+                if is_quota_exhausted:
+                    # Daily quota exhausted - wait until next reset (typically midnight PT)
+                    # Set a 1-hour wait as a reasonable default
+                    self._quota_exhausted_until = time.time() + 3600
+                    logger.error(f"Gemini API daily quota exhausted. Will retry in 1 hour.")
+                    logger.error("Consider switching to a different model (GEMINI_MODEL env var) or upgrading API tier.")
+                    return None
 
                 if is_rate_limit and attempt < max_retries:
                     delay = retry_delays[attempt]

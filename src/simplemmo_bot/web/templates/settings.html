@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Settings - SimpleMMO Bot{% endblock %}
+{% block title %}Settings - Don Quixote Bot{% endblock %}
 
 {% block content %}
 <header>
@@ -95,6 +95,21 @@
                     Only Quests Mode
                 </label>
                 <p class="form-hint">Only run quest automation, skip travel entirely</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="section">
+        <div class="section-title">API Settings</div>
+        <div class="card">
+            <div class="form-group">
+                <label class="form-label" for="gemini_model">Gemini Model</label>
+                <select id="gemini_model" name="gemini_model" class="form-input">
+                    <option value="gemini-1.5-flash" {% if gemini_model == 'gemini-1.5-flash' %}selected{% endif %}>gemini-1.5-flash (recommended)</option>
+                    <option value="gemini-1.5-pro" {% if gemini_model == 'gemini-1.5-pro' %}selected{% endif %}>gemini-1.5-pro</option>
+                    <option value="gemini-2.0-flash" {% if gemini_model == 'gemini-2.0-flash' %}selected{% endif %}>gemini-2.0-flash</option>
+                </select>
+                <p class="form-hint">Model used for captcha solving. gemini-1.5-flash has the best free tier quota.</p>
             </div>
         </div>
     </div>

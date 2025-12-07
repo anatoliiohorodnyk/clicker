@@ -169,6 +169,11 @@ class BotManager:
                 if not settings.gemini_api_key or settings.gemini_api_key == "your_gemini_api_key_here":
                     return False, "GEMINI_API_KEY not configured"
 
+                # Apply settings from database
+                gemini_model = db.get_setting("gemini_model", "")
+                if gemini_model:
+                    settings.gemini_model = gemini_model
+
                 # Get active account from database
                 active_account = db.get_active_account()
                 if active_account:

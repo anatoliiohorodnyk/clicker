@@ -141,12 +141,15 @@ async def dashboard(request: Request) -> HTMLResponse:
 async def settings_page(request: Request) -> HTMLResponse:
     """Settings page."""
     settings = get_settings()
+    # Get gemini_model from database or use default from settings
+    gemini_model = db.get_setting("gemini_model", settings.gemini_model)
     return templates.TemplateResponse(
         "settings.html",
         {
             "request": request,
             "page": "settings",
             "settings": settings,
+            "gemini_model": gemini_model,
             "saved": request.query_params.get("saved") == "1",
         },
     )
@@ -164,6 +167,7 @@ async def save_settings(
     auto_fight_npc: bool = Form(False),
     auto_gather_materials: bool = Form(False),
     only_quests: bool = Form(False),
+    gemini_model: str = Form("gemini-1.5-flash"),
 ) -> HTMLResponse:
     """Save settings to database."""
     # Save to database
@@ -176,6 +180,7 @@ async def save_settings(
     db.set_setting("auto_fight_npc", "true" if auto_fight_npc else "false")
     db.set_setting("auto_gather_materials", "true" if auto_gather_materials else "false")
     db.set_setting("only_quests", "true" if only_quests else "false")
+    db.set_setting("gemini_model", gemini_model)
 
     return RedirectResponse(url="/settings?saved=1", status_code=302)
 
