@@ -391,11 +391,24 @@ No explanation, just the number."""
                 logger.debug(f"OpenAI API raw result: {result}")
 
                 # Handle different response formats (OpenAI vs Cloudflare AI)
-                if "choices" in result:
+                answer = None
+
+                if "choices" in result and result["choices"]:
                     # Standard OpenAI format
-                    answer = result["choices"][0]["message"]["content"].strip()
+                    message = result["choices"][0].get("message", {})
+                    content = message.get("content")
+
+                    if content:
+                        answer = content.strip()
+                    else:
+                        # Model returned empty response - likely doesn't support vision in this format
+                        logger.error(f"Model returned empty content. Message: {message}")
+                        logger.error("This usually means the model doesn't support vision or the request format is wrong.")
+                        logger.error("For Cloudflare AI, try models like: @cf/meta/llama-3.2-11b-vision-instruct")
+                        return None
+
                 elif "result" in result:
-                    # Cloudflare AI format
+                    # Cloudflare AI native format (non-OpenAI compatible endpoint)
                     cf_result = result["result"]
                     if isinstance(cf_result, dict) and "response" in cf_result:
                         answer = cf_result["response"].strip()
@@ -406,6 +419,10 @@ No explanation, just the number."""
                         return None
                 else:
                     logger.error(f"Unknown API response format: {result}")
+                    return None
+
+                if not answer:
+                    logger.error("API returned empty answer")
                     return None
 
                 logger.debug(f"OpenAI raw response: {answer}")
