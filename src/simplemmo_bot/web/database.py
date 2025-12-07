@@ -72,6 +72,7 @@ def init_db() -> None:
                 email TEXT NOT NULL,
                 password TEXT NOT NULL,
                 is_active INTEGER DEFAULT 0,
+                level INTEGER DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
 
@@ -79,6 +80,13 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_logs_timestamp ON logs(timestamp DESC);
         """)
         conn.commit()
+
+        # Migration: add level column if not exists
+        try:
+            conn.execute("ALTER TABLE accounts ADD COLUMN level INTEGER DEFAULT 0")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass  # Column already exists
 
 
 @dataclass
@@ -269,6 +277,7 @@ class Account:
     email: str
     password: str
     is_active: bool
+    level: int
     created_at: str
 
     @classmethod
@@ -280,6 +289,7 @@ class Account:
             email=row["email"],
             password=row["password"],
             is_active=bool(row["is_active"]),
+            level=row["level"] or 0,
             created_at=row["created_at"],
         )
 
@@ -344,4 +354,11 @@ def set_active_account(account_id: int) -> None:
     with get_connection() as conn:
         conn.execute("UPDATE accounts SET is_active = 0")
         conn.execute("UPDATE accounts SET is_active = 1 WHERE id = ?", (account_id,))
+        conn.commit()
+
+
+def update_account_level(account_id: int, level: int) -> None:
+    """Update account level."""
+    with get_connection() as conn:
+        conn.execute("UPDATE accounts SET level = ? WHERE id = ?", (level, account_id))
         conn.commit()

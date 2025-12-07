@@ -95,6 +95,17 @@ class BotManager:
             db.add_log(self.state.session_id, "INFO", "Bot session started")
 
             with SimpleMMOClient(settings) as client:
+                # Update account level from game
+                active_account = db.get_active_account()
+                if active_account:
+                    try:
+                        player_info = client.get_player_info()
+                        if player_info and "level" in player_info:
+                            db.update_account_level(active_account.id, int(player_info["level"]))
+                            logger.info(f"Updated account level: {player_info['level']}")
+                    except Exception as e:
+                        logger.warning(f"Could not update account level: {e}")
+
                 with CaptchaSolver(settings) as solver:
                     quest_bot = QuestBot(settings, client)
                     self._bot = TravelBot(settings, client, solver, quest_bot=quest_bot)

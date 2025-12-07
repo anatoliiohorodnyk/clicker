@@ -27,6 +27,9 @@ logging.basicConfig(
 for module in ["simplemmo_bot", "httpx", "httpcore"]:
     logging.getLogger(module).setLevel(getattr(logging, log_level, logging.INFO))
 
+# Suppress uvicorn access logs (move to DEBUG to reduce noise)
+logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+
 logger = logging.getLogger(__name__)
 
 # Auth credentials (hashed)
