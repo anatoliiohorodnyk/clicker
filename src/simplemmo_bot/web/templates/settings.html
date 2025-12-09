@@ -162,24 +162,75 @@
                     <p class="form-hint">Cloudflare API token with Workers AI permission</p>
                 </div>
                 <div class="form-group">
-                    <label class="form-label" for="cf_model">Model</label>
-                    <input type="text" id="cf_model" name="openai_model"
-                           class="form-input" value="{{ openai_model }}"
-                           placeholder="@cf/llava-hf/llava-1.5-7b-hf">
-                    <p class="form-hint">Free vision models: @cf/llava-hf/llava-1.5-7b-hf or @cf/unum/uform-gen2-qwen-500m</p>
+                    <label class="form-label" for="cf_model_select">Vision Model</label>
+                    <select id="cf_model_select" class="form-input" onchange="toggleCustomModel()">
+                        <option value="@cf/llava-hf/llava-1.5-7b-hf">LLaVA 1.5 7B (tested, recommended)</option>
+                        <option value="@cf/unum/uform-gen2-qwen-500m">UForm Gen2 Qwen 500M (lightweight)</option>
+                        <option value="@cf/meta/llama-3.2-11b-vision-instruct">Llama 3.2 11B Vision (newest)</option>
+                        <option value="custom">Custom model...</option>
+                    </select>
+                    <p class="form-hint">Select a verified model or enter custom</p>
                 </div>
+                <div class="form-group" id="cf_custom_model_group" style="display: none;">
+                    <label class="form-label" for="cf_custom_model">Custom Model ID</label>
+                    <input type="text" id="cf_custom_model" class="form-input"
+                           placeholder="@cf/your-model-id">
+                </div>
+                <input type="hidden" id="cf_model" name="openai_model" value="{{ openai_model }}">
             </div>
         </div>
     </div>
 
     <script>
+    const CF_KNOWN_MODELS = [
+        '@cf/llava-hf/llava-1.5-7b-hf',
+        '@cf/unum/uform-gen2-qwen-500m',
+        '@cf/meta/llama-3.2-11b-vision-instruct'
+    ];
+
     function toggleProviderSettings() {
         const provider = document.getElementById('captcha_provider').value;
         document.getElementById('gemini-settings').style.display = provider === 'gemini' ? 'block' : 'none';
         document.getElementById('openai-settings').style.display = provider === 'openai' ? 'block' : 'none';
         document.getElementById('cloudflare-settings').style.display = provider === 'cloudflare' ? 'block' : 'none';
     }
+
+    function toggleCustomModel() {
+        const select = document.getElementById('cf_model_select');
+        const customGroup = document.getElementById('cf_custom_model_group');
+        const customInput = document.getElementById('cf_custom_model');
+        const hiddenInput = document.getElementById('cf_model');
+
+        if (select.value === 'custom') {
+            customGroup.style.display = 'block';
+            hiddenInput.value = customInput.value || '';
+        } else {
+            customGroup.style.display = 'none';
+            hiddenInput.value = select.value;
+        }
+    }
+
+    function initCloudflareModel() {
+        const currentModel = document.getElementById('cf_model').value;
+        const select = document.getElementById('cf_model_select');
+        const customInput = document.getElementById('cf_custom_model');
+
+        if (CF_KNOWN_MODELS.includes(currentModel)) {
+            select.value = currentModel;
+        } else if (currentModel) {
+            select.value = 'custom';
+            customInput.value = currentModel;
+        }
+        toggleCustomModel();
+    }
+
+    // Sync custom input with hidden field
+    document.getElementById('cf_custom_model')?.addEventListener('input', function() {
+        document.getElementById('cf_model').value = this.value;
+    });
+
     toggleProviderSettings();
+    initCloudflareModel();
     </script>
 
     <div class="controls">
