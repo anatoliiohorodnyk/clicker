@@ -104,18 +104,19 @@ class TravelBot:
         jitter = random.uniform(-0.5, 0.5)
         return max(1.0, base + jitter)
 
-    def _parse_npc_rewards(self, attack_result: dict) -> tuple[int, int]:
-        """Parse gold and exp from NPC battle rewards HTML.
+    def _parse_npc_rewards(self, attack_result: dict) -> tuple[int, int, int]:
+        """Parse gold, exp, and items from NPC battle rewards HTML.
 
         Returns:
-            Tuple of (gold, exp)
+            Tuple of (gold, exp, items_count)
         """
         gold = 0
         exp = 0
+        items = 0
 
         rewards = attack_result.get("rewards", [])
         if not rewards:
-            return gold, exp
+            return gold, exp, items
 
         for reward in rewards:
             reward_str = str(reward)
@@ -129,7 +130,11 @@ class TravelBot:
             if gold_match:
                 gold = int(gold_match.group(1).replace(",", ""))
 
-        return gold, exp
+            # Parse Items: look for item links like /item/12345 or item images
+            if '/item/' in reward_str or 'item-sprite' in reward_str.lower():
+                items += 1
+
+        return gold, exp, items
 
     def _handle_npc(self, result: TravelResult) -> None:
         """Handle NPC encounter - attack the NPC."""
@@ -161,8 +166,8 @@ class TravelBot:
             or attack_result.get("opponent_hp", 1) <= 0
         )
 
-        # Parse gold and exp from rewards HTML
-        gold, exp = self._parse_npc_rewards(attack_result)
+        # Parse gold, exp, and items from rewards HTML
+        gold, exp, items = self._parse_npc_rewards(attack_result)
 
         # Debug: log rewards field if present
         if "rewards" in attack_result:
@@ -174,7 +179,11 @@ class TravelBot:
             self.stats.npcs_won += 1
             self.stats.exp_earned += exp
             self.stats.gold_earned += gold
-            logger.info(f"Won against {npc_name}! +{exp} XP, +{gold} gold")
+            self.stats.items_found += items
+            reward_msg = f"+{exp} XP, +{gold} gold"
+            if items > 0:
+                reward_msg += f", +{items} item(s)!"
+            logger.info(f"Won against {npc_name}! {reward_msg}")
         else:
             self.stats.npcs_lost += 1
             logger.info(f"Lost against {npc_name}")
