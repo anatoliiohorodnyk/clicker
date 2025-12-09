@@ -90,6 +90,14 @@
             </div>
             <div class="form-group">
                 <label class="checkbox-label">
+                    <input type="checkbox" name="use_healer" value="true"
+                           {% if settings.use_healer %}checked{% endif %}>
+                    Use Healer on Death
+                </label>
+                <p class="form-hint">Use healer to respawn (limited 3/day). If disabled, waits 5 min for auto-respawn.</p>
+            </div>
+            <div class="form-group">
+                <label class="checkbox-label">
                     <input type="checkbox" name="only_quests" value="true"
                            {% if settings.only_quests %}checked{% endif %}>
                     Only Quests Mode

@@ -216,6 +216,20 @@ class BotManager:
                     gemini_model = db.get_setting("gemini_model", "") or settings.gemini_model
                     settings.gemini_model = gemini_model
 
+                # Apply feature settings from database (with .env as fallback)
+                auto_fight = db.get_setting("auto_fight_npc", "")
+                if auto_fight:
+                    settings.auto_fight_npc = auto_fight.lower() == "true"
+                auto_gather = db.get_setting("auto_gather_materials", "")
+                if auto_gather:
+                    settings.auto_gather_materials = auto_gather.lower() == "true"
+                use_healer = db.get_setting("use_healer", "")
+                if use_healer:
+                    settings.use_healer = use_healer.lower() == "true"
+                only_quests = db.get_setting("only_quests", "")
+                if only_quests:
+                    settings.only_quests = only_quests.lower() == "true"
+
                 # Get active account from database
                 active_account = db.get_active_account()
                 if active_account:
