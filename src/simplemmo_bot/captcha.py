@@ -216,10 +216,13 @@ No explanation, just the number."""
             logger.error(f"Failed to download image from {url}: {e}")
             return None
 
-    def _image_to_base64(self, img: Image.Image) -> str:
+    def _image_to_base64(self, img: Image.Image, format: str = "PNG") -> str:
         """Convert PIL Image to base64 string."""
+        # Convert to RGB if needed (for JPEG compatibility)
+        if format == "JPEG" and img.mode in ("RGBA", "P"):
+            img = img.convert("RGB")
         buffer = BytesIO()
-        img.save(buffer, format="PNG")
+        img.save(buffer, format=format)
         return base64.b64encode(buffer.getvalue()).decode("utf-8")
 
     def _get_captcha_page(self) -> tuple[str | None, list[str] | None]:
@@ -454,7 +457,13 @@ No explanation, just the number."""
 
         # Create a grid image of all 4 images
         grid_image = self._create_grid_image(images)
-        img_base64 = self._image_to_base64(grid_image)
+
+        # Convert to JPEG bytes - Cloudflare expects raw bytes as list of integers
+        if grid_image.mode in ("RGBA", "P"):
+            grid_image = grid_image.convert("RGB")
+        buffer = BytesIO()
+        grid_image.save(buffer, format="JPEG", quality=85)
+        img_bytes = list(buffer.getvalue())
 
         # Build prompt for grid-based selection
         cf_prompt = f"""This image shows a 2x2 grid of 4 images:
@@ -472,8 +481,9 @@ Respond with ONLY a single digit: 1, 2, 3, or 4"""
         # Cloudflare native API endpoint
         api_url = f"https://api.cloudflare.com/client/v4/accounts/{self.cf_account_id}/ai/run/{self.cf_model}"
 
+        # Cloudflare Workers AI expects image as array of bytes (list of integers 0-255)
         payload = {
-            "image": [img_base64],
+            "image": img_bytes,
             "prompt": cf_prompt,
             "max_tokens": 50
         }
@@ -499,8 +509,10 @@ Respond with ONLY a single digit: 1, 2, 3, or 4"""
             # Parse Cloudflare native response format
             if result.get("success") and "result" in result:
                 cf_result = result["result"]
-                if isinstance(cf_result, dict) and "response" in cf_result:
-                    answer = cf_result["response"].strip()
+                if isinstance(cf_result, dict):
+                    # Try different response field names (varies by model)
+                    answer = cf_result.get("response") or cf_result.get("description") or ""
+                    answer = answer.strip()
                 elif isinstance(cf_result, str):
                     answer = cf_result.strip()
                 else:

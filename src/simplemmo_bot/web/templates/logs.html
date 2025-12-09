@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+
+{% block title %}Logs - Don Quixote Bot{% endblock %}
+
+{% block content %}
+<header>
+    <h1>Live Logs</h1>
+    <div class="controls">
+        <label class="checkbox-label">
+            <input type="checkbox" id="auto-scroll" checked>
+            Auto-scroll
+        </label>
+        <button class="btn btn-secondary" onclick="clearLogs()">Clear</button>
+    </div>
+</header>
+
+<div class="card logs-container">
+    <div id="logs-content" hx-get="/partials/logs" hx-trigger="load, every 2s" hx-swap="innerHTML">
+        {% include "partials/logs.html" %}
+    </div>
+</div>
+
+<style>
+    .logs-container {
+        height: calc(100vh - 200px);
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+    }
+
+    #logs-content {
+        flex: 1;
+        overflow-y: auto;
+        font-family: 'Consolas', 'Monaco', monospace;
+        font-size: 0.85rem;
+        line-height: 1.5;
+        padding: 10px;
+    }
+
+    .log-entry {
+        padding: 4px 8px;
+        border-radius: 4px;
+        margin-bottom: 2px;
+        white-space: pre-wrap;
+        word-break: break-all;
+    }
+
+    .log-entry:hover {
+        background: var(--bg-hover);
+    }
+
+    .log-entry.INFO {
+        color: var(--text);
+    }
+
+    .log-entry.WARNING {
+        color: var(--warning);
+        background: rgba(255, 193, 7, 0.1);
+    }
+
+    .log-entry.ERROR {
+        color: var(--error);
+        background: rgba(255, 71, 87, 0.1);
+    }
+
+    .log-entry.DEBUG {
+        color: var(--text-muted);
+    }
+
+    .log-time {
+        color: var(--text-muted);
+        margin-right: 10px;
+    }
+
+    .log-level {
+        font-weight: 600;
+        margin-right: 10px;
+        min-width: 60px;
+        display: inline-block;
+    }
+
+    .empty-logs {
+        color: var(--text-muted);
+        text-align: center;
+        padding: 40px;
+    }
+
+    header .controls {
+        display: flex;
+        align-items: center;
+        gap: 20px;
+    }
+</style>
+
+<script>
+    function clearLogs() {
+        fetch('/actions/clear-logs', { method: 'POST' })
+            .then(() => htmx.trigger('#logs-content', 'htmx:load'));
+    }
+
+    // Auto-scroll functionality
+    document.body.addEventListener('htmx:afterSwap', function(evt) {
+        if (evt.detail.target.id === 'logs-content') {
+            const autoScroll = document.getElementById('auto-scroll');
+            if (autoScroll && autoScroll.checked) {
+                const container = document.getElementById('logs-content');
+                container.scrollTop = container.scrollHeight;
+            }
+        }
+    });
+</script>
+{% endblock %}

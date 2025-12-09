@@ -60,7 +60,7 @@
         <div class="card account-card {% if account.is_active %}active{% endif %}">
             <div class="account-info">
                 <div class="account-name">
-                    {{ account.name }}
+                    {{ account.name }}{% if account.level %} ({{ account.level }} lvl){% endif %}
                     {% if account.is_active %}
                     <span class="badge">Active</span>
                     {% endif %}

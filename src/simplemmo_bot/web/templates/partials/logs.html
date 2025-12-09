@@ -1,0 +1,7 @@
+{% if logs %}
+{% for entry in logs %}
+<div class="log-entry {{ entry.level }}"><span class="log-time">{{ entry.message.split(' - ')[0] if ' - ' in entry.message else '' }}</span><span class="log-level">{{ entry.level }}</span>{{ entry.message.split(' - ', 1)[1] if ' - ' in entry.message else entry.message }}</div>
+{% endfor %}
+{% else %}
+<div class="empty-logs">No logs yet. Start the bot to see activity.</div>
+{% endif %}
