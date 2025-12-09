@@ -457,8 +457,13 @@ No explanation, just the number."""
 
         # Create a grid image of all 4 images
         grid_image = self._create_grid_image(images)
-        # Use JPEG format - Cloudflare LLaVA has issues with PNG
-        img_base64 = self._image_to_base64(grid_image, format="JPEG")
+
+        # Convert to JPEG bytes - Cloudflare expects raw bytes as list of integers
+        if grid_image.mode in ("RGBA", "P"):
+            grid_image = grid_image.convert("RGB")
+        buffer = BytesIO()
+        grid_image.save(buffer, format="JPEG", quality=85)
+        img_bytes = list(buffer.getvalue())
 
         # Build prompt for grid-based selection
         cf_prompt = f"""This image shows a 2x2 grid of 4 images:
@@ -476,9 +481,9 @@ Respond with ONLY a single digit: 1, 2, 3, or 4"""
         # Cloudflare native API endpoint
         api_url = f"https://api.cloudflare.com/client/v4/accounts/{self.cf_account_id}/ai/run/{self.cf_model}"
 
-        # Cloudflare expects image as a single base64 string, not an array
+        # Cloudflare Workers AI expects image as array of bytes (list of integers 0-255)
         payload = {
-            "image": img_base64,
+            "image": img_bytes,
             "prompt": cf_prompt,
             "max_tokens": 50
         }

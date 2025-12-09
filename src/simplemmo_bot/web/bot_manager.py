@@ -101,8 +101,10 @@ class BotManager:
                     try:
                         player_info = client.get_player_info()
                         if player_info and "level" in player_info:
-                            db.update_account_level(active_account.id, int(player_info["level"]))
-                            logger.info(f"Updated account level: {player_info['level']}")
+                            # Remove commas from level string (e.g. "3,503" -> "3503")
+                            level_str = str(player_info["level"]).replace(",", "")
+                            db.update_account_level(active_account.id, int(level_str))
+                            logger.info(f"Updated account level: {level_str}")
                     except Exception as e:
                         logger.warning(f"Could not update account level: {e}")
 
