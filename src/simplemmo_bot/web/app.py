@@ -4,6 +4,9 @@ import hashlib
 import logging
 import os
 import secrets
+import time
+from collections import deque
+from dataclasses import dataclass
 from pathlib import Path
 
 from fastapi import FastAPI, Request, Form, Depends, HTTPException
@@ -17,6 +20,55 @@ from . import database as db
 from .bot_manager import bot_manager, BotStatus
 from ..config import get_settings, Settings
 
+
+# In-memory log buffer for live logs
+@dataclass
+class LogEntry:
+    timestamp: float
+    level: str
+    name: str
+    message: str
+
+
+class LogBuffer:
+    """Thread-safe ring buffer for log entries."""
+
+    def __init__(self, maxlen: int = 500):
+        self._buffer: deque[LogEntry] = deque(maxlen=maxlen)
+        self._id = 0
+
+    def add(self, level: str, name: str, message: str) -> None:
+        self._buffer.append(LogEntry(
+            timestamp=time.time(),
+            level=level,
+            name=name,
+            message=message,
+        ))
+        self._id += 1
+
+    def get_entries(self, limit: int = 100) -> list[LogEntry]:
+        entries = list(self._buffer)
+        return entries[-limit:] if len(entries) > limit else entries
+
+    @property
+    def last_id(self) -> int:
+        return self._id
+
+
+log_buffer = LogBuffer(maxlen=500)
+
+
+class WebLogHandler(logging.Handler):
+    """Custom log handler that stores logs in memory buffer."""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            msg = self.format(record)
+            log_buffer.add(record.levelname, record.name, msg)
+        except Exception:
+            pass
+
+
 # Configure logging based on LOG_LEVEL env var
 log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(
@@ -29,6 +81,13 @@ for module in ["simplemmo_bot", "httpx", "httpcore"]:
 
 # Suppress uvicorn access logs (move to DEBUG to reduce noise)
 logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+
+# Add web log handler to capture logs for live view
+web_handler = WebLogHandler()
+web_handler.setLevel(logging.INFO)
+web_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s", datefmt="%H:%M:%S"))
+logging.getLogger("simplemmo_bot").addHandler(web_handler)
+logging.getLogger("httpx").addHandler(web_handler)
 
 logger = logging.getLogger(__name__)
 
@@ -383,3 +442,35 @@ async def action_stop(request: Request) -> HTMLResponse:
         "partials/controls.html",
         {"request": request, "state": state},
     )
+
+
+# Logs page
+@app.get("/logs", response_class=HTMLResponse)
+async def logs_page(request: Request) -> HTMLResponse:
+    """Live logs page."""
+    logs = log_buffer.get_entries(100)
+    return templates.TemplateResponse(
+        "logs.html",
+        {
+            "request": request,
+            "page": "logs",
+            "logs": logs,
+        },
+    )
+
+
+@app.get("/partials/logs", response_class=HTMLResponse)
+async def logs_partial(request: Request) -> HTMLResponse:
+    """Logs partial for HTMX polling."""
+    logs = log_buffer.get_entries(100)
+    return templates.TemplateResponse(
+        "partials/logs.html",
+        {"request": request, "logs": logs},
+    )
+
+
+@app.post("/actions/clear-logs")
+async def clear_logs() -> dict:
+    """Clear log buffer."""
+    log_buffer._buffer.clear()
+    return {"success": True}
