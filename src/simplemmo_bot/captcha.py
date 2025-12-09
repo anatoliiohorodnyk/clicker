@@ -509,8 +509,10 @@ Respond with ONLY a single digit: 1, 2, 3, or 4"""
             # Parse Cloudflare native response format
             if result.get("success") and "result" in result:
                 cf_result = result["result"]
-                if isinstance(cf_result, dict) and "response" in cf_result:
-                    answer = cf_result["response"].strip()
+                if isinstance(cf_result, dict):
+                    # Try different response field names (varies by model)
+                    answer = cf_result.get("response") or cf_result.get("description") or ""
+                    answer = answer.strip()
                 elif isinstance(cf_result, str):
                     answer = cf_result.strip()
                 else:
