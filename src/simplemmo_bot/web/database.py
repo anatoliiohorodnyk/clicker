@@ -88,6 +88,15 @@ def init_db() -> None:
         except sqlite3.OperationalError:
             pass  # Column already exists
 
+        # Migration: add auto_equip_best_items column if not exists
+        try:
+            conn.execute(
+                "ALTER TABLE accounts ADD COLUMN auto_equip_best_items INTEGER DEFAULT 0"
+            )
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
 
 @dataclass
 class SessionStats:
@@ -279,10 +288,18 @@ class Account:
     is_active: bool
     level: int
     created_at: str
+    auto_equip_best_items: bool = False
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> "Account":
         """Create from database row."""
+        # Handle missing column for backwards compatibility
+        auto_equip = False
+        try:
+            auto_equip = bool(row["auto_equip_best_items"])
+        except (IndexError, KeyError):
+            pass
+
         return cls(
             id=row["id"],
             name=row["name"],
@@ -291,6 +308,7 @@ class Account:
             is_active=bool(row["is_active"]),
             level=row["level"] or 0,
             created_at=row["created_at"],
+            auto_equip_best_items=auto_equip,
         )
 
 
@@ -332,12 +350,20 @@ def create_account(name: str, email: str, password: str) -> int:
         return cursor.lastrowid
 
 
-def update_account(account_id: int, name: str, email: str, password: str) -> None:
+def update_account(
+    account_id: int,
+    name: str,
+    email: str,
+    password: str,
+    auto_equip_best_items: bool = False,
+) -> None:
     """Update account details."""
     with get_connection() as conn:
         conn.execute(
-            "UPDATE accounts SET name = ?, email = ?, password = ? WHERE id = ?",
-            (name, email, password, account_id),
+            """UPDATE accounts
+               SET name = ?, email = ?, password = ?, auto_equip_best_items = ?
+               WHERE id = ?""",
+            (name, email, password, int(auto_equip_best_items), account_id),
         )
         conn.commit()
 

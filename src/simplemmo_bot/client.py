@@ -14,6 +14,18 @@ from .config import Settings
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class InventoryItem:
+    """Represents an item in the inventory."""
+
+    id: int
+    name: str
+    item_type: str  # Weapon, Helmet, Armour, Shield, Pet
+    strength: int  # Attack stat
+    defence: int  # Defence stat
+    equippable: bool  # Has equip button (not currently equipped)
+
+
 def human_delay(base: float = 1.0, std: float = 0.15, min_delay: float = 0.8) -> None:
     """
     Sleep for a human-like random duration using normal distribution.
@@ -73,6 +85,12 @@ class SimpleMMOClient:
     NPC_SPRITE_PATTERN = re.compile(r"/img/sprites/enemies/(\d+)\.png")
     MATERIAL_GATHER_PATTERN = re.compile(r'/crafting/material/gather/(\d+)')
     ITEM_PATTERN = re.compile(r'/item/(\d+)')
+
+    # Inventory parsing patterns
+    INVENTORY_ITEM_BLOCK_PATTERN = re.compile(r'id="item-(\d+)-block"')
+    INVENTORY_EQUIP_PATTERN = re.compile(r'/inventory/equip/(\d+)')
+    INVENTORY_STAT_PATTERN = re.compile(r'<strong>\+(\d+)</strong>\s*(str|def)', re.IGNORECASE)
+    INVENTORY_TYPE_PATTERN = re.compile(r'type%5B%5D=(Weapon|Helmet|Armour|Shield|Pet)', re.IGNORECASE)
 
     def __init__(self, settings: Settings) -> None:
         """Initialize client with settings."""
@@ -838,3 +856,217 @@ class SimpleMMOClient:
         except Exception as e:
             logger.error(f"Error performing quest {quest_id}: {e}")
             return {"success": False, "error": str(e)}
+
+    def get_inventory(self) -> list[InventoryItem]:
+        """
+        Fetch and parse inventory items.
+
+        Returns:
+            List of InventoryItem objects that can be equipped.
+        """
+        try:
+            inventory_url = "https://web.simple-mmo.com/inventory/items"
+            logger.debug(f"Fetching inventory: {inventory_url}")
+
+            headers = {
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Referer": "https://web.simple-mmo.com/",
+                "User-Agent": self.DEFAULT_HEADERS["User-Agent"],
+            }
+
+            response = self._client.get(inventory_url, headers=headers)
+
+            # Check for redirect (authentication issue)
+            if response.status_code in (301, 302, 303, 307, 308):
+                logger.error(f"Got redirect {response.status_code} - session expired")
+                return []
+
+            response.raise_for_status()
+            html = response.text
+
+            return self._parse_inventory_html(html)
+
+        except Exception as e:
+            logger.error(f"Error fetching inventory: {e}")
+            return []
+
+    def _parse_inventory_html(self, html: str) -> list[InventoryItem]:
+        """
+        Parse inventory HTML to extract equippable items.
+
+        Args:
+            html: Raw HTML from /inventory/items page.
+
+        Returns:
+            List of InventoryItem objects.
+        """
+        items: list[InventoryItem] = []
+
+        # Split HTML into item blocks using the item-X-block pattern
+        # Each item block contains info about one item
+        item_blocks = re.split(r'(?=id="item-\d+-block")', html)
+
+        for block in item_blocks:
+            # Find item ID from block id attribute
+            id_match = self.INVENTORY_ITEM_BLOCK_PATTERN.search(block)
+            if not id_match:
+                continue
+
+            item_id = int(id_match.group(1))
+
+            # Check if item is equippable (has equip button)
+            equip_match = self.INVENTORY_EQUIP_PATTERN.search(block)
+            if not equip_match:
+                continue  # Skip items without equip button (already equipped or not equippable)
+
+            # Extract item type from URL
+            type_match = self.INVENTORY_TYPE_PATTERN.search(block)
+            item_type = type_match.group(1).capitalize() if type_match else "Unknown"
+
+            # Extract stats
+            strength = 0
+            defence = 0
+            for stat_match in self.INVENTORY_STAT_PATTERN.finditer(block):
+                value = int(stat_match.group(1))
+                stat_type = stat_match.group(2).lower()
+                if stat_type == "str":
+                    strength = value
+                elif stat_type == "def":
+                    defence = value
+
+            # Try to extract item name from alt attribute or title
+            name_match = re.search(r'alt="([^"]+)"', block)
+            if not name_match:
+                name_match = re.search(r'title="([^"]+)"', block)
+            item_name = name_match.group(1) if name_match else f"Item #{item_id}"
+
+            items.append(InventoryItem(
+                id=item_id,
+                name=item_name,
+                item_type=item_type,
+                strength=strength,
+                defence=defence,
+                equippable=True,
+            ))
+
+        logger.debug(f"Parsed {len(items)} equippable items from inventory")
+        return items
+
+    def equip_item(self, item_id: int) -> dict[str, Any]:
+        """
+        Equip an item by its ID.
+
+        Args:
+            item_id: The item ID to equip.
+
+        Returns:
+            Result dictionary with success status.
+        """
+        try:
+            equip_url = f"https://web.simple-mmo.com/inventory/equip/{item_id}"
+            logger.debug(f"Equipping item {item_id}: {equip_url}")
+
+            headers = {
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Referer": "https://web.simple-mmo.com/inventory/items",
+                "User-Agent": self.DEFAULT_HEADERS["User-Agent"],
+            }
+
+            response = self._client.get(equip_url, headers=headers)
+
+            # Check for redirect (often means success, redirects back to inventory)
+            if response.status_code in (301, 302, 303, 307, 308):
+                logger.info(f"Item {item_id} equipped successfully (redirect)")
+                return {"success": True, "item_id": item_id}
+
+            response.raise_for_status()
+
+            # Check response for success indicators
+            if "equipped" in response.text.lower() or response.status_code == 200:
+                logger.info(f"Item {item_id} equipped successfully")
+                return {"success": True, "item_id": item_id}
+
+            logger.warning(f"Unexpected response when equipping item {item_id}")
+            return {"success": False, "error": "Unexpected response"}
+
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP error equipping item {item_id}: {e.response.status_code}")
+            return {"success": False, "error": f"HTTP {e.response.status_code}"}
+        except Exception as e:
+            logger.error(f"Error equipping item {item_id}: {e}")
+            return {"success": False, "error": str(e)}
+
+    def equip_best_items(self) -> dict[str, Any]:
+        """
+        Find and equip the best items from inventory for each equipment slot.
+
+        Best items are determined by:
+        - Weapons: highest strength (str)
+        - Helmet, Armour, Shield: highest defence (def)
+        - Pet: highest combined stats
+
+        Returns:
+            Result dictionary with equipped items count and details.
+        """
+        try:
+            items = self.get_inventory()
+            if not items:
+                logger.info("No equippable items found in inventory")
+                return {"success": True, "equipped": 0, "items": []}
+
+            # Group items by type
+            items_by_type: dict[str, list[InventoryItem]] = {}
+            for item in items:
+                if item.item_type not in items_by_type:
+                    items_by_type[item.item_type] = []
+                items_by_type[item.item_type].append(item)
+
+            equipped_items: list[dict[str, Any]] = []
+
+            # Find best item for each slot
+            for item_type, type_items in items_by_type.items():
+                if not type_items:
+                    continue
+
+                # Determine which stat to prioritize
+                if item_type.lower() == "weapon":
+                    # Weapons: prioritize strength
+                    best_item = max(type_items, key=lambda x: x.strength)
+                elif item_type.lower() == "pet":
+                    # Pets: prioritize combined stats
+                    best_item = max(type_items, key=lambda x: x.strength + x.defence)
+                else:
+                    # Armor (Helmet, Armour, Shield): prioritize defence
+                    best_item = max(type_items, key=lambda x: x.defence)
+
+                logger.info(
+                    f"Best {item_type}: {best_item.name} "
+                    f"(+{best_item.strength} str, +{best_item.defence} def)"
+                )
+
+                # Equip the best item
+                result = self.equip_item(best_item.id)
+                if result.get("success"):
+                    equipped_items.append({
+                        "id": best_item.id,
+                        "name": best_item.name,
+                        "type": item_type,
+                        "strength": best_item.strength,
+                        "defence": best_item.defence,
+                    })
+
+                # Human-like delay between equips
+                human_delay(base=0.8, std=0.1, min_delay=0.5)
+
+            logger.info(f"Equipped {len(equipped_items)} best items")
+            return {
+                "success": True,
+                "equipped": len(equipped_items),
+                "items": equipped_items,
+            }
+
+        except Exception as e:
+            logger.error(f"Error equipping best items: {e}")
+            return {"success": False, "error": str(e), "equipped": 0, "items": []}

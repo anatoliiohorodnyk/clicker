@@ -301,6 +301,7 @@ async def manage_accounts(
     name: str = Form(None),
     email: str = Form(None),
     password: str = Form(None),
+    auto_equip_best_items: bool = Form(False),
 ) -> HTMLResponse:
     """Handle account management actions."""
     try:
@@ -318,7 +319,7 @@ async def manage_accounts(
                 return RedirectResponse(url="/accounts?error=Account+not+found", status_code=302)
             # Use existing password if not provided
             new_password = password if password else account.password
-            db.update_account(account_id, name, email, new_password)
+            db.update_account(account_id, name, email, new_password, auto_equip_best_items)
             return RedirectResponse(url="/accounts?message=Account+updated", status_code=302)
 
         elif action == "delete":

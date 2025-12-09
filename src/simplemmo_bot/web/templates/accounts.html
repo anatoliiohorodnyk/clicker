@@ -43,6 +43,14 @@
             </div>
         </div>
 
+        <div class="form-group">
+            <label class="checkbox-label">
+                <input type="checkbox" id="auto_equip" name="auto_equip_best_items" value="true">
+                Auto Equip Best Items
+            </label>
+            <p class="form-hint">Automatically equip the best items from inventory for new accounts</p>
+        </div>
+
         <div class="controls">
             <button type="submit" class="btn btn-primary">Save Account</button>
             <button type="button" class="btn btn-secondary" onclick="hideForm()">Cancel</button>
@@ -75,7 +83,7 @@
                     <button type="submit" class="btn btn-primary btn-sm">Activate</button>
                 </form>
                 {% endif %}
-                <button class="btn btn-secondary btn-sm" onclick="editAccount({{ account.id }}, '{{ account.name }}', '{{ account.email }}')">Edit</button>
+                <button class="btn btn-secondary btn-sm" onclick="editAccount({{ account.id }}, '{{ account.name }}', '{{ account.email }}', {{ 'true' if account.auto_equip_best_items else 'false' }})">Edit</button>
                 {% if not account.is_active %}
                 <form method="post" action="/accounts" style="display: inline;" onsubmit="return confirm('Delete this account?');">
                     <input type="hidden" name="action" value="delete">
@@ -155,11 +163,12 @@
         document.getElementById('email').value = '';
         document.getElementById('password').value = '';
         document.getElementById('password').required = true;
+        document.getElementById('auto_equip').checked = false;
         document.getElementById('account-form').style.display = 'block';
         document.getElementById('name').focus();
     }
 
-    function editAccount(id, name, email) {
+    function editAccount(id, name, email, autoEquip) {
         document.getElementById('form-title').textContent = 'Edit Account';
         document.getElementById('form-action').value = 'update';
         document.getElementById('account-id').value = id;
@@ -168,6 +177,7 @@
         document.getElementById('password').value = '';
         document.getElementById('password').required = false;
         document.getElementById('password').placeholder = 'Leave empty to keep current';
+        document.getElementById('auto_equip').checked = autoEquip;
         document.getElementById('account-form').style.display = 'block';
         document.getElementById('name').focus();
     }

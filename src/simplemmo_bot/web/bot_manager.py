@@ -108,6 +108,26 @@ class BotManager:
                     except Exception as e:
                         logger.warning(f"Could not update account level: {e}")
 
+                    # Auto-equip best items if enabled for this account
+                    if active_account.auto_equip_best_items:
+                        logger.info("Auto-equip best items enabled - checking inventory...")
+                        try:
+                            result = client.equip_best_items()
+                            if result.get("success"):
+                                equipped_count = result.get("equipped", 0)
+                                if equipped_count > 0:
+                                    db.add_log(
+                                        self.state.session_id,
+                                        "INFO",
+                                        f"Auto-equipped {equipped_count} best items",
+                                    )
+                                else:
+                                    logger.info("No better items to equip")
+                            else:
+                                logger.warning(f"Auto-equip failed: {result.get('error')}")
+                        except Exception as e:
+                            logger.warning(f"Could not auto-equip items: {e}")
+
                 with CaptchaSolver(settings) as solver:
                     quest_bot = QuestBot(settings, client)
                     self._bot = TravelBot(settings, client, solver, quest_bot=quest_bot)
