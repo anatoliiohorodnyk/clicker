@@ -9,6 +9,7 @@ Automated travel & resource farming bot for SimpleMMO with web control panel.
 - **Auto Travel** — Human-like delays and break pauses
 - **Auto Fight NPCs** — Automatically attack encountered NPCs
 - **Auto Gather Materials** — Collect materials when found
+- **Auto Equip Best Items** — Automatically equip strongest gear from inventory (per-account setting)
 - **Quests Automation** — Auto-complete quests during breaks
 - **Auto Respawn** — Healer or 5min wait
 - **Auto Re-login** — Seamless session recovery
@@ -35,7 +36,7 @@ Access the control panel at `http://localhost:8080`
 
 - **Dashboard** — Bot status, session statistics, start/stop controls
 - **Settings** — Configure delays, breaks, captcha provider, AI models
-- **Accounts** — Add/edit/delete game accounts, see account levels
+- **Accounts** — Add/edit/delete game accounts, see levels, enable auto-equip
 
 ## Environment Variables
 
@@ -127,5 +128,4 @@ cp /data/bot.db /data/bot.db.backup
 
 - [ ] Battle Arena (NPC)
 - [ ] Auto deposit gold to Bank
-- [ ] Live logs viewer in Web Panel
 - [ ] Telegram notifications
