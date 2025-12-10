@@ -4,14 +4,14 @@ Automated travel & resource farming bot for SimpleMMO with web control panel.
 
 ## Features
 
-- **Web Control Panel** — Start/stop bot, view statistics, manage settings
+- **Web Control Panel** — Start/stop bot, view statistics, manage settings (mobile-friendly)
 - **Multi-Account Support** — Add multiple accounts, switch between them
 - **Auto Travel** — Human-like delays and break pauses
 - **Auto Fight NPCs** — Automatically attack encountered NPCs
 - **Auto Gather Materials** — Collect materials when found
 - **Auto Equip Best Items** — Automatically equip strongest gear from inventory (per-account setting)
 - **Quests Automation** — Auto-complete quests during breaks
-- **Auto Respawn** — Healer or 5min wait
+- **Auto Respawn** — Healer (limited 3/day) or 5min auto-respawn
 - **Auto Re-login** — Seamless session recovery
 - **Captcha Solving** — Multiple AI providers:
   - Cloudflare Workers AI (free)
@@ -83,6 +83,7 @@ BREAK_DURATION_MAX=420
 # Features
 AUTO_FIGHT_NPC=true
 AUTO_GATHER_MATERIALS=true
+USE_HEALER=false             # use healer (3/day) or wait 5min auto-respawn
 ONLY_QUESTS=false            # true = only quests, skip travel
 ```
 
