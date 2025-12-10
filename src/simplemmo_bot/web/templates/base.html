@@ -378,11 +378,184 @@
             color: var(--error);
             border: 1px solid var(--error);
         }
+
+        /* Mobile menu toggle button */
+        .mobile-menu-btn {
+            display: none;
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            background: var(--accent);
+            color: white;
+            border: none;
+            cursor: pointer;
+            z-index: 1001;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            align-items: center;
+            justify-content: center;
+        }
+
+        .mobile-menu-btn svg {
+            width: 24px;
+            height: 24px;
+        }
+
+        /* Sidebar overlay for mobile */
+        .sidebar-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 999;
+        }
+
+        /* Mobile responsive styles */
+        @media (max-width: 768px) {
+            .layout {
+                flex-direction: column;
+            }
+
+            .sidebar {
+                position: fixed;
+                left: -280px;
+                top: 0;
+                bottom: 0;
+                width: 280px;
+                z-index: 1000;
+                transition: left 0.3s ease;
+                overflow-y: auto;
+            }
+
+            .sidebar.open {
+                left: 0;
+            }
+
+            .sidebar-overlay.open {
+                display: block;
+            }
+
+            .mobile-menu-btn {
+                display: flex;
+            }
+
+            .main {
+                padding: 20px 15px;
+                padding-bottom: 90px; /* Space for floating button */
+            }
+
+            header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 15px;
+            }
+
+            h1 {
+                font-size: 1.5rem;
+            }
+
+            .grid {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 12px;
+            }
+
+            .stat-value {
+                font-size: 1.5rem;
+            }
+
+            .stat-label {
+                font-size: 0.75rem;
+            }
+
+            .card {
+                padding: 15px;
+            }
+
+            .form-row {
+                grid-template-columns: 1fr;
+                gap: 0;
+            }
+
+            .controls {
+                flex-direction: column;
+            }
+
+            .btn {
+                width: 100%;
+                justify-content: center;
+                padding: 14px 24px;
+            }
+
+            .session-info {
+                flex-direction: column;
+                gap: 10px;
+            }
+
+            /* Table responsive */
+            table {
+                display: block;
+                overflow-x: auto;
+                white-space: nowrap;
+            }
+
+            .btn-sm {
+                padding: 10px 16px;
+            }
+
+            /* Accounts page specific */
+            .account-actions {
+                display: flex;
+                flex-direction: column;
+                gap: 8px;
+            }
+
+            .account-actions .btn {
+                width: 100%;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+
+            .main {
+                padding: 15px 10px;
+                padding-bottom: 90px;
+            }
+
+            h1 {
+                font-size: 1.3rem;
+            }
+
+            .logo {
+                font-size: 1.1rem;
+            }
+
+            .nav-item {
+                padding: 14px 20px;
+            }
+
+            .form-input {
+                padding: 14px 12px;
+            }
+
+            .status-badge {
+                padding: 6px 12px;
+                font-size: 0.8rem;
+            }
+        }
     </style>
 </head>
 <body>
     {% block body %}
     <div class="layout">
+        <div class="sidebar-overlay" onclick="toggleMobileMenu()"></div>
         <aside class="sidebar">
             <div class="logo">Don Quixote</div>
             <nav class="nav">
@@ -432,6 +605,28 @@
             </div>
         </main>
     </div>
+
+    <!-- Mobile menu button -->
+    <button class="mobile-menu-btn" onclick="toggleMobileMenu()" aria-label="Toggle menu">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M3 12h18M3 6h18M3 18h18"/>
+        </svg>
+    </button>
+
+    <script>
+    function toggleMobileMenu() {
+        document.querySelector('.sidebar').classList.toggle('open');
+        document.querySelector('.sidebar-overlay').classList.toggle('open');
+    }
+
+    // Close menu when clicking a nav link
+    document.querySelectorAll('.nav-item').forEach(link => {
+        link.addEventListener('click', () => {
+            document.querySelector('.sidebar').classList.remove('open');
+            document.querySelector('.sidebar-overlay').classList.remove('open');
+        });
+    });
+    </script>
     {% endblock %}
 </body>
 </html>
