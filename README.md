@@ -130,6 +130,9 @@ cp /data/bot.db /data/bot.db.backup
 - [ ] Battle Arena (NPC)
 - [ ] Auto deposit gold to Bank
 - [ ] Telegram notifications
-- [ ] Auto skill leveling
+- [ ] Auto-upgrade stats
 - [ ] Multiple accounts running simultaneously
 - [ ] Proxy support
+- [ ] Auto-claim daily rewards
+- [ ] Auto-tasks (daily)
+- [ ] Scheduler (run bot on schedule)
