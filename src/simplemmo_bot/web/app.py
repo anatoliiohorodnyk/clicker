@@ -248,6 +248,7 @@ async def save_settings(
     auto_fight_npc: bool = Form(False),
     auto_gather_materials: bool = Form(False),
     use_healer: bool = Form(False),
+    quests_during_break: bool = Form(True),
     only_quests: bool = Form(False),
     captcha_provider: str = Form("gemini"),
     gemini_model: str = Form("gemini-2.0-flash"),
@@ -266,6 +267,7 @@ async def save_settings(
     db.set_setting("auto_fight_npc", "true" if auto_fight_npc else "false")
     db.set_setting("auto_gather_materials", "true" if auto_gather_materials else "false")
     db.set_setting("use_healer", "true" if use_healer else "false")
+    db.set_setting("quests_during_break", "true" if quests_during_break else "false")
     db.set_setting("only_quests", "true" if only_quests else "false")
     db.set_setting("captcha_provider", captcha_provider)
     db.set_setting("gemini_model", gemini_model)

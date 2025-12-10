@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     auto_fight_npc: bool = Field(default=True, description="Automatically fight NPCs")
     auto_gather_materials: bool = Field(default=True, description="Automatically gather materials")
     use_healer: bool = Field(default=False, description="Use healer on death (limited 3/day) or wait 5min auto-respawn")
+    quests_during_break: bool = Field(default=True, description="Run quests during break pauses")
     only_quests: bool = Field(default=False, description="Only run quest automation, skip travel")
 
     # API endpoints

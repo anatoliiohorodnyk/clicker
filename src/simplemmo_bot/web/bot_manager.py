@@ -229,6 +229,9 @@ class BotManager:
                 only_quests = db.get_setting("only_quests", "")
                 if only_quests:
                     settings.only_quests = only_quests.lower() == "true"
+                quests_during_break = db.get_setting("quests_during_break", "")
+                if quests_during_break:
+                    settings.quests_during_break = quests_during_break.lower() == "true"
 
                 # Get active account from database
                 active_account = db.get_active_account()

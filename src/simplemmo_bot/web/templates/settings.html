@@ -98,6 +98,14 @@
             </div>
             <div class="form-group">
                 <label class="checkbox-label">
+                    <input type="checkbox" name="quests_during_break" value="true"
+                           {% if settings.quests_during_break %}checked{% endif %}>
+                    Quests During Break
+                </label>
+                <p class="form-hint">Run quests automatically during break pauses</p>
+            </div>
+            <div class="form-group">
+                <label class="checkbox-label">
                     <input type="checkbox" name="only_quests" value="true"
                            {% if settings.only_quests %}checked{% endif %}>
                     Only Quests Mode

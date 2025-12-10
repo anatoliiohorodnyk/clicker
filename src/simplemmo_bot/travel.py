@@ -340,8 +340,8 @@ class TravelBot:
 
                     break_start_time = time.time()
 
-                    # Run quests during break if quest_bot is available
-                    if self.quest_bot:
+                    # Run quests during break if enabled and quest_bot is available
+                    if self.settings.quests_during_break and self.quest_bot:
                         logger.info("📜 Running quests during break...")
                         quest_stats = self.quest_bot.run_quests(continuous=False)
                         logger.info(
