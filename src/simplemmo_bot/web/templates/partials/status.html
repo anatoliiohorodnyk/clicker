@@ -1,5 +1,11 @@
-{% set status_class = state.status.value %}
-<span class="status-badge {{ status_class }}">
+{% if running_count > 0 %}
+<span class="status-badge running">
     <span class="status-dot"></span>
-    {{ state.status.value | capitalize }}
+    {{ running_count }} Running
 </span>
+{% else %}
+<span class="status-badge stopped">
+    <span class="status-dot"></span>
+    Stopped
+</span>
+{% endif %}

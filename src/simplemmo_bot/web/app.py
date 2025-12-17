@@ -196,6 +196,8 @@ async def dashboard(request: Request) -> HTMLResponse:
     state = bot_manager.get_state()
     total_stats = db.get_total_stats()
     current_session = db.get_current_session()
+    running_accounts = bot_manager.get_running_accounts()
+    all_states = bot_manager.get_all_states()
 
     return templates.TemplateResponse(
         "dashboard.html",
@@ -205,6 +207,8 @@ async def dashboard(request: Request) -> HTMLResponse:
             "state": state,
             "total_stats": total_stats,
             "current_session": current_session,
+            "running_accounts": running_accounts,
+            "bot_states": all_states,
         },
     )
 
@@ -285,6 +289,8 @@ async def accounts_page(request: Request) -> HTMLResponse:
     accounts = db.get_accounts()
     message = request.query_params.get("message")
     error = request.query_params.get("error")
+    running_accounts = bot_manager.get_running_accounts()
+    all_states = bot_manager.get_all_states()
     return templates.TemplateResponse(
         "accounts.html",
         {
@@ -293,6 +299,8 @@ async def accounts_page(request: Request) -> HTMLResponse:
             "accounts": accounts,
             "message": message,
             "error": error,
+            "running_accounts": running_accounts,
+            "bot_states": all_states,
         },
     )
 
@@ -347,35 +355,60 @@ async def manage_accounts(
 
 # API routes
 @app.get("/api/status")
-async def get_status() -> dict:
-    """Get current bot status."""
-    state = bot_manager.get_state()
-    return {
-        "status": state.status.value,
-        "session_id": state.session_id,
-        "error": state.error_message,
-        "stats": {
-            "steps_taken": state.travel_stats.steps_taken if state.travel_stats else 0,
-            "npcs_fought": state.travel_stats.npcs_fought if state.travel_stats else 0,
-            "npcs_won": state.travel_stats.npcs_won if state.travel_stats else 0,
-            "materials_gathered": state.travel_stats.materials_gathered if state.travel_stats else 0,
-            "gold_earned": state.travel_stats.gold_earned if state.travel_stats else 0,
-            "exp_earned": state.travel_stats.exp_earned if state.travel_stats else 0,
-        } if state.travel_stats else None,
-    }
+async def get_status(account_id: int | None = None) -> dict:
+    """Get current bot status for specific account or all running bots."""
+    if account_id is not None:
+        state = bot_manager.get_state(account_id)
+        return {
+            "status": state.status.value,
+            "account_id": state.account_id,
+            "account_name": state.account_name,
+            "session_id": state.session_id,
+            "error": state.error_message,
+            "stats": {
+                "steps_taken": state.travel_stats.steps_taken if state.travel_stats else 0,
+                "npcs_fought": state.travel_stats.npcs_fought if state.travel_stats else 0,
+                "npcs_won": state.travel_stats.npcs_won if state.travel_stats else 0,
+                "materials_gathered": state.travel_stats.materials_gathered if state.travel_stats else 0,
+                "gold_earned": state.travel_stats.gold_earned if state.travel_stats else 0,
+                "exp_earned": state.travel_stats.exp_earned if state.travel_stats else 0,
+            } if state.travel_stats else None,
+        }
+
+    # Return all running bots
+    all_states = bot_manager.get_all_states()
+    running = []
+    for aid, state in all_states.items():
+        if state.status in (BotStatus.RUNNING, BotStatus.STARTING, BotStatus.STOPPING):
+            running.append({
+                "status": state.status.value,
+                "account_id": state.account_id,
+                "account_name": state.account_name,
+                "session_id": state.session_id,
+                "error": state.error_message,
+                "stats": {
+                    "steps_taken": state.travel_stats.steps_taken if state.travel_stats else 0,
+                    "npcs_fought": state.travel_stats.npcs_fought if state.travel_stats else 0,
+                    "npcs_won": state.travel_stats.npcs_won if state.travel_stats else 0,
+                    "materials_gathered": state.travel_stats.materials_gathered if state.travel_stats else 0,
+                    "gold_earned": state.travel_stats.gold_earned if state.travel_stats else 0,
+                    "exp_earned": state.travel_stats.exp_earned if state.travel_stats else 0,
+                } if state.travel_stats else None,
+            })
+    return {"running_bots": running, "count": len(running)}
 
 
 @app.post("/api/start")
-async def start_bot() -> dict:
-    """Start the bot."""
-    success, message = bot_manager.start()
+async def start_bot(account_id: int | None = None) -> dict:
+    """Start the bot for specific account."""
+    success, message = bot_manager.start(account_id)
     return {"success": success, "message": message}
 
 
 @app.post("/api/stop")
-async def stop_bot() -> dict:
-    """Stop the bot."""
-    success, message = bot_manager.stop()
+async def stop_bot(account_id: int | None = None) -> dict:
+    """Stop the bot for specific account or all bots."""
+    success, message = bot_manager.stop(account_id)
     return {"success": success, "message": message}
 
 
@@ -399,9 +432,10 @@ async def get_logs(limit: int = 50) -> list[dict]:
 async def status_partial(request: Request) -> HTMLResponse:
     """Status badge partial for HTMX polling."""
     state = bot_manager.get_state()
+    running_count = len(bot_manager.get_running_accounts())
     return templates.TemplateResponse(
         "partials/status.html",
-        {"request": request, "state": state},
+        {"request": request, "state": state, "running_count": running_count},
     )
 
 
@@ -479,3 +513,71 @@ async def clear_logs() -> dict:
     """Clear log buffer."""
     log_buffer._buffer.clear()
     return {"success": True}
+
+
+# Account-specific bot actions
+@app.post("/actions/start/{account_id}", response_class=HTMLResponse)
+async def action_start_account(request: Request, account_id: int) -> HTMLResponse:
+    """Start bot for specific account."""
+    success, message = bot_manager.start(account_id)
+    # Return updated account card partial
+    account = db.get_account(account_id)
+    state = bot_manager.get_state(account_id)
+    return templates.TemplateResponse(
+        "partials/account_card.html",
+        {
+            "request": request,
+            "account": account,
+            "is_running": bot_manager.is_running(account_id),
+            "state": state,
+            "message": message if not success else None,
+        },
+    )
+
+
+@app.post("/actions/stop/{account_id}", response_class=HTMLResponse)
+async def action_stop_account(request: Request, account_id: int) -> HTMLResponse:
+    """Stop bot for specific account."""
+    success, message = bot_manager.stop(account_id)
+    account = db.get_account(account_id)
+    state = bot_manager.get_state(account_id)
+    return templates.TemplateResponse(
+        "partials/account_card.html",
+        {
+            "request": request,
+            "account": account,
+            "is_running": bot_manager.is_running(account_id),
+            "state": state,
+        },
+    )
+
+
+@app.get("/partials/account_card/{account_id}", response_class=HTMLResponse)
+async def account_card_partial(request: Request, account_id: int) -> HTMLResponse:
+    """Account card partial for HTMX polling."""
+    account = db.get_account(account_id)
+    state = bot_manager.get_state(account_id)
+    return templates.TemplateResponse(
+        "partials/account_card.html",
+        {
+            "request": request,
+            "account": account,
+            "is_running": bot_manager.is_running(account_id),
+            "state": state,
+        },
+    )
+
+
+@app.get("/partials/running_bots", response_class=HTMLResponse)
+async def running_bots_partial(request: Request) -> HTMLResponse:
+    """Running bots summary partial for HTMX polling."""
+    all_states = bot_manager.get_all_states()
+    running_accounts = bot_manager.get_running_accounts()
+    return templates.TemplateResponse(
+        "partials/running_bots.html",
+        {
+            "request": request,
+            "bot_states": all_states,
+            "running_accounts": running_accounts,
+        },
+    )

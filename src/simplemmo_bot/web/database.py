@@ -36,6 +36,7 @@ def init_db() -> None:
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS sessions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_id INTEGER,
                 started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 ended_at TIMESTAMP,
                 status TEXT DEFAULT 'running',
@@ -48,7 +49,8 @@ def init_db() -> None:
                 exp_earned INTEGER DEFAULT 0,
                 quests_completed INTEGER DEFAULT 0,
                 captchas_solved INTEGER DEFAULT 0,
-                errors INTEGER DEFAULT 0
+                errors INTEGER DEFAULT 0,
+                FOREIGN KEY (account_id) REFERENCES accounts(id)
             );
 
             CREATE TABLE IF NOT EXISTS logs (
@@ -97,12 +99,20 @@ def init_db() -> None:
         except sqlite3.OperationalError:
             pass  # Column already exists
 
+        # Migration: add account_id column to sessions if not exists
+        try:
+            conn.execute("ALTER TABLE sessions ADD COLUMN account_id INTEGER")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
 
 @dataclass
 class SessionStats:
     """Current session statistics."""
 
     id: int
+    account_id: int | None
     started_at: datetime
     ended_at: datetime | None
     status: str
@@ -120,8 +130,16 @@ class SessionStats:
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> "SessionStats":
         """Create from database row."""
+        # Handle missing account_id for backwards compatibility
+        account_id = None
+        try:
+            account_id = row["account_id"]
+        except (IndexError, KeyError):
+            pass
+
         return cls(
             id=row["id"],
+            account_id=account_id,
             started_at=row["started_at"],
             ended_at=row["ended_at"],
             status=row["status"],
@@ -138,10 +156,13 @@ class SessionStats:
         )
 
 
-def create_session() -> int:
+def create_session(account_id: int | None = None) -> int:
     """Create new session and return its ID."""
     with get_connection() as conn:
-        cursor = conn.execute("INSERT INTO sessions DEFAULT VALUES")
+        cursor = conn.execute(
+            "INSERT INTO sessions (account_id) VALUES (?)",
+            (account_id,),
+        )
         conn.commit()
         return cursor.lastrowid
 

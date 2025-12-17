@@ -8,17 +8,27 @@
     </div>
 </header>
 
+<!-- Running Bots Section -->
 <div class="section">
-    <div class="section-title">Controls</div>
-    <div id="controls" hx-get="/partials/controls" hx-trigger="every 2s">
-        {% include "partials/controls.html" %}
+    <div class="section-title">Running Bots ({{ running_accounts|length }})</div>
+    <div id="running-bots" hx-get="/partials/running_bots" hx-trigger="every 3s">
+        {% include "partials/running_bots.html" %}
     </div>
 </div>
 
+<!-- Quick Controls -->
 <div class="section">
-    <div class="section-title">Current Session</div>
-    <div id="stats" hx-get="/partials/stats" hx-trigger="every 3s">
-        {% include "partials/stats.html" %}
+    <div class="section-title">Quick Controls</div>
+    <div class="controls-row">
+        <a href="/accounts" class="btn btn-primary">Manage Accounts</a>
+        {% if running_accounts %}
+        <button class="btn btn-danger"
+                hx-post="/api/stop"
+                hx-swap="none"
+                onclick="return confirm('Stop all running bots?')">
+            Stop All Bots
+        </button>
+        {% endif %}
     </div>
 </div>
 
@@ -59,4 +69,98 @@
         </div>
     </div>
 </div>
+
+<style>
+    .controls-row {
+        display: flex;
+        gap: 15px;
+        flex-wrap: wrap;
+    }
+
+    .running-bots-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+        gap: 15px;
+    }
+
+    .running-bot-card {
+        padding: 15px;
+    }
+
+    .bot-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 12px;
+    }
+
+    .bot-name {
+        font-weight: 600;
+        font-size: 1.1rem;
+    }
+
+    .badge-running {
+        background: var(--success);
+        color: white;
+        padding: 4px 10px;
+        border-radius: 12px;
+        font-size: 0.75rem;
+    }
+
+    .badge-starting {
+        background: var(--warning);
+        color: white;
+        padding: 4px 10px;
+        border-radius: 12px;
+        font-size: 0.75rem;
+    }
+
+    .badge-stopping {
+        background: var(--text-muted);
+        color: white;
+        padding: 4px 10px;
+        border-radius: 12px;
+        font-size: 0.75rem;
+    }
+
+    .bot-stats {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        font-size: 0.9rem;
+        margin-bottom: 12px;
+    }
+
+    .stat-row {
+        display: flex;
+        justify-content: space-between;
+        padding: 4px 0;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .stat-row:last-child {
+        border-bottom: none;
+    }
+
+    .bot-actions {
+        display: flex;
+        gap: 10px;
+    }
+
+    .no-bots-message {
+        text-align: center;
+        padding: 30px;
+        color: var(--text-muted);
+    }
+
+    .no-bots-message a {
+        color: var(--primary);
+    }
+
+    @media (max-width: 768px) {
+        .running-bots-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
 {% endblock %}

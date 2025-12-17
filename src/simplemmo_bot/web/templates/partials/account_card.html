@@ -1,0 +1,51 @@
+<div class="card account-card {% if is_running %}running{% endif %}"
+     id="account-card-{{ account.id }}"
+     hx-get="/partials/account_card/{{ account.id }}"
+     hx-trigger="every 3s"
+     hx-swap="outerHTML">
+    <div class="account-info">
+        <div class="account-name">
+            {{ account.name }}{% if account.level %} ({{ account.level }} lvl){% endif %}
+            {% if is_running %}
+            <span class="badge badge-running">Running</span>
+            {% endif %}
+        </div>
+        <div class="account-email">{{ account.email }}</div>
+        {% if is_running and state and state.travel_stats %}
+        <div class="account-stats">
+            Steps: {{ state.travel_stats.steps_taken }} |
+            Gold: {{ state.travel_stats.gold_earned }} |
+            EXP: {{ state.travel_stats.exp_earned }}
+        </div>
+        {% endif %}
+        {% if message %}
+        <div class="account-error">{{ message }}</div>
+        {% endif %}
+    </div>
+    <div class="account-actions">
+        {% if is_running %}
+        <button class="btn btn-danger btn-sm"
+                hx-post="/actions/stop/{{ account.id }}"
+                hx-target="#account-card-{{ account.id }}"
+                hx-swap="outerHTML">
+            Stop
+        </button>
+        {% else %}
+        <button class="btn btn-success btn-sm"
+                hx-post="/actions/start/{{ account.id }}"
+                hx-target="#account-card-{{ account.id }}"
+                hx-swap="outerHTML">
+            Start
+        </button>
+        <button class="btn btn-secondary btn-sm"
+                onclick="editAccount({{ account.id }}, '{{ account.name }}', '{{ account.email }}', {{ 'true' if account.auto_equip_best_items else 'false' }})">
+            Edit
+        </button>
+        <form method="post" action="/accounts" style="display: inline;" onsubmit="return confirm('Delete this account?');">
+            <input type="hidden" name="action" value="delete">
+            <input type="hidden" name="account_id" value="{{ account.id }}">
+            <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+        </form>
+        {% endif %}
+    </div>
+</div>

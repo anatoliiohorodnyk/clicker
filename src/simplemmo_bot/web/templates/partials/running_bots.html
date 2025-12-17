@@ -1,0 +1,45 @@
+{% if running_accounts %}
+<div class="running-bots-grid">
+    {% for account_id in running_accounts %}
+    {% set state = bot_states[account_id] %}
+    <div class="card running-bot-card">
+        <div class="bot-header">
+            <span class="bot-name">{{ state.account_name or 'Account ' ~ account_id }}</span>
+            <span class="badge badge-{{ state.status.value }}">{{ state.status.value }}</span>
+        </div>
+        {% if state.travel_stats %}
+        <div class="bot-stats">
+            <div class="stat-row">
+                <span>Steps:</span>
+                <span>{{ "{:,}".format(state.travel_stats.steps_taken) }}</span>
+            </div>
+            <div class="stat-row">
+                <span>Gold:</span>
+                <span>{{ "{:,}".format(state.travel_stats.gold_earned) }}</span>
+            </div>
+            <div class="stat-row">
+                <span>EXP:</span>
+                <span>{{ "{:,}".format(state.travel_stats.exp_earned) }}</span>
+            </div>
+            <div class="stat-row">
+                <span>NPCs:</span>
+                <span>{{ state.travel_stats.npcs_won }}/{{ state.travel_stats.npcs_fought }}</span>
+            </div>
+        </div>
+        {% endif %}
+        <div class="bot-actions">
+            <button class="btn btn-danger btn-sm"
+                    hx-post="/actions/stop/{{ account_id }}"
+                    hx-target="#running-bots"
+                    hx-swap="innerHTML">
+                Stop
+            </button>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="no-bots-message">
+    No bots are currently running. Go to <a href="/accounts">Accounts</a> to start a bot.
+</div>
+{% endif %}

@@ -1,4 +1,4 @@
-"""Bot process manager for web panel."""
+"""Bot process manager for web panel - multi-account support."""
 
 import logging
 import threading
@@ -17,6 +17,9 @@ from . import database as db
 
 logger = logging.getLogger(__name__)
 
+# Maximum concurrent bots
+MAX_CONCURRENT_BOTS = 5
+
 
 class BotStatus(str, Enum):
     """Bot running status."""
@@ -33,6 +36,8 @@ class BotState:
     """Current bot state."""
 
     status: BotStatus = BotStatus.STOPPED
+    account_id: int | None = None
+    account_name: str | None = None
     session_id: int | None = None
     travel_stats: TravelStats | None = None
     quest_stats: QuestStats | None = None
@@ -41,7 +46,7 @@ class BotState:
 
 
 class BotManager:
-    """Manages bot lifecycle and statistics."""
+    """Manages multiple bot instances lifecycle and statistics."""
 
     _instance: "BotManager | None" = None
 
@@ -58,89 +63,109 @@ class BotManager:
             return
 
         self._initialized = True
-        self.state = BotState()
-        self._bot: TravelBot | None = None
-        self._thread: threading.Thread | None = None
+        # Multi-account support: dictionaries keyed by account_id
+        self._states: dict[int, BotState] = {}
+        self._bots: dict[int, TravelBot] = {}
+        self._threads: dict[int, threading.Thread] = {}
         self._lock = threading.Lock()
-        self._on_stats_update: list[Callable[[TravelStats], None]] = []
+        self._on_stats_update: list[Callable[[int, TravelStats], None]] = []
 
-    def get_state(self) -> BotState:
-        """Get current bot state."""
-        return self.state
+    def get_state(self, account_id: int | None = None) -> BotState:
+        """Get bot state for specific account or first running bot."""
+        if account_id is not None:
+            return self._states.get(account_id, BotState())
+        # Legacy: return first running state or empty
+        for state in self._states.values():
+            if state.status in (BotStatus.RUNNING, BotStatus.STARTING):
+                return state
+        return BotState()
 
-    def is_running(self) -> bool:
-        """Check if bot is running."""
-        return self.state.status in (BotStatus.RUNNING, BotStatus.STARTING)
+    def get_all_states(self) -> dict[int, BotState]:
+        """Get all bot states."""
+        return self._states.copy()
 
-    def on_stats_update(self, callback: Callable[[TravelStats], None]) -> None:
+    def get_running_accounts(self) -> list[int]:
+        """Get list of account IDs with running bots."""
+        return [
+            aid for aid, state in self._states.items()
+            if state.status in (BotStatus.RUNNING, BotStatus.STARTING)
+        ]
+
+    def is_running(self, account_id: int | None = None) -> bool:
+        """Check if bot is running for specific account or any account."""
+        if account_id is not None:
+            state = self._states.get(account_id)
+            return state is not None and state.status in (BotStatus.RUNNING, BotStatus.STARTING)
+        return len(self.get_running_accounts()) > 0
+
+    def on_stats_update(self, callback: Callable[[int, TravelStats], None]) -> None:
         """Register callback for stats updates."""
         self._on_stats_update.append(callback)
 
-    def _notify_stats_update(self, stats: TravelStats) -> None:
+    def _notify_stats_update(self, account_id: int, stats: TravelStats) -> None:
         """Notify all callbacks of stats update."""
         for callback in self._on_stats_update:
             try:
-                callback(stats)
+                callback(account_id, stats)
             except Exception as e:
                 logger.error(f"Stats callback error: {e}")
 
-    def _run_bot(self, settings: Settings) -> None:
-        """Run bot in thread."""
+    def _run_bot(self, account_id: int, account: db.Account, settings: Settings) -> None:
+        """Run bot in thread for specific account."""
+        state = self._states[account_id]
         try:
-            self.state.status = BotStatus.RUNNING
-            self.state.started_at = time.time()
+            state.status = BotStatus.RUNNING
+            state.started_at = time.time()
 
             # Create database session
-            self.state.session_id = db.create_session()
-            db.add_log(self.state.session_id, "INFO", "Bot session started")
+            state.session_id = db.create_session(account_id)
+            db.add_log(state.session_id, "INFO", f"Bot session started for {account.name}")
 
             with SimpleMMOClient(settings) as client:
                 # Update account level from game
-                active_account = db.get_active_account()
-                if active_account:
-                    try:
-                        player_info = client.get_player_info()
-                        if player_info and "level" in player_info:
-                            # Remove commas from level string (e.g. "3,503" -> "3503")
-                            level_str = str(player_info["level"]).replace(",", "")
-                            db.update_account_level(active_account.id, int(level_str))
-                            logger.info(f"Updated account level: {level_str}")
-                    except Exception as e:
-                        logger.warning(f"Could not update account level: {e}")
+                try:
+                    player_info = client.get_player_info()
+                    if player_info and "level" in player_info:
+                        level_str = str(player_info["level"]).replace(",", "")
+                        db.update_account_level(account_id, int(level_str))
+                        logger.info(f"[{account.name}] Updated level: {level_str}")
+                except Exception as e:
+                    logger.warning(f"[{account.name}] Could not update level: {e}")
 
-                    # Auto-equip best items if enabled for this account
-                    if active_account.auto_equip_best_items:
-                        logger.info("Auto-equip best items enabled - checking inventory...")
-                        try:
-                            result = client.equip_best_items()
-                            if result.get("success"):
-                                equipped_count = result.get("equipped", 0)
-                                if equipped_count > 0:
-                                    db.add_log(
-                                        self.state.session_id,
-                                        "INFO",
-                                        f"Auto-equipped {equipped_count} best items",
-                                    )
-                                else:
-                                    logger.info("No better items to equip")
+                # Auto-equip best items if enabled
+                if account.auto_equip_best_items:
+                    logger.info(f"[{account.name}] Auto-equip enabled - checking inventory...")
+                    try:
+                        result = client.equip_best_items()
+                        if result.get("success"):
+                            equipped_count = result.get("equipped", 0)
+                            if equipped_count > 0:
+                                db.add_log(
+                                    state.session_id,
+                                    "INFO",
+                                    f"Auto-equipped {equipped_count} best items",
+                                )
                             else:
-                                logger.warning(f"Auto-equip failed: {result.get('error')}")
-                        except Exception as e:
-                            logger.warning(f"Could not auto-equip items: {e}")
+                                logger.info(f"[{account.name}] No better items to equip")
+                        else:
+                            logger.warning(f"[{account.name}] Auto-equip failed: {result.get('error')}")
+                    except Exception as e:
+                        logger.warning(f"[{account.name}] Could not auto-equip: {e}")
 
                 with CaptchaSolver(settings) as solver:
                     quest_bot = QuestBot(settings, client)
-                    self._bot = TravelBot(settings, client, solver, quest_bot=quest_bot)
+                    bot = TravelBot(settings, client, solver, quest_bot=quest_bot)
+                    self._bots[account_id] = bot
 
                     # Set up stats callback
-                    def on_step(result, stats: TravelStats) -> None:
-                        self.state.travel_stats = stats
-                        self._notify_stats_update(stats)
+                    def on_step(result, stats: TravelStats, aid=account_id) -> None:
+                        self._states[aid].travel_stats = stats
+                        self._notify_stats_update(aid, stats)
 
-                        # Update database periodically (every 10 steps)
+                        # Update database periodically
                         if stats.steps_taken % 10 == 0:
                             db.update_session(
-                                self.state.session_id,
+                                self._states[aid].session_id,
                                 steps_taken=stats.steps_taken,
                                 npcs_fought=stats.npcs_fought,
                                 npcs_won=stats.npcs_won,
@@ -152,16 +177,17 @@ class BotManager:
                                 errors=stats.errors,
                             )
 
-                    self._bot.on_step(on_step)
+                    bot.on_step(on_step)
 
                     # Run travel
-                    stats = self._bot.travel()
-                    self.state.travel_stats = stats
+                    logger.info(f"[{account.name}] Starting travel...")
+                    stats = bot.travel()
+                    state.travel_stats = stats
 
                     # Final database update
-                    if self.state.session_id:
+                    if state.session_id:
                         db.update_session(
-                            self.state.session_id,
+                            state.session_id,
                             steps_taken=stats.steps_taken,
                             npcs_fought=stats.npcs_fought,
                             npcs_won=stats.npcs_won,
@@ -172,33 +198,56 @@ class BotManager:
                             captchas_solved=stats.captchas_solved,
                             errors=stats.errors,
                         )
-                        db.end_session(self.state.session_id, "completed")
-                        db.add_log(self.state.session_id, "INFO", "Bot session completed")
+                        db.end_session(state.session_id, "completed")
+                        db.add_log(state.session_id, "INFO", f"Bot session completed for {account.name}")
 
         except Exception as e:
-            logger.exception(f"Bot error: {e}")
-            self.state.status = BotStatus.ERROR
-            self.state.error_message = str(e)
-            if self.state.session_id:
-                db.add_log(self.state.session_id, "ERROR", str(e))
-                db.end_session(self.state.session_id, "error")
+            logger.exception(f"[{account.name}] Bot error: {e}")
+            state.status = BotStatus.ERROR
+            state.error_message = str(e)
+            if state.session_id:
+                db.add_log(state.session_id, "ERROR", str(e))
+                db.end_session(state.session_id, "error")
         finally:
-            self._bot = None
-            if self.state.status != BotStatus.ERROR:
-                self.state.status = BotStatus.STOPPED
+            self._bots.pop(account_id, None)
+            if state.status != BotStatus.ERROR:
+                state.status = BotStatus.STOPPED
 
-    def start(self) -> tuple[bool, str]:
-        """Start the bot."""
+    def start(self, account_id: int | None = None) -> tuple[bool, str]:
+        """Start the bot for specific account."""
         with self._lock:
-            if self.is_running():
-                return False, "Bot is already running"
+            # If no account_id specified, use active account (legacy behavior)
+            if account_id is None:
+                active = db.get_active_account()
+                if not active:
+                    return False, "No account selected. Add and activate an account first."
+                account_id = active.id
 
-            self.state = BotState(status=BotStatus.STARTING)
+            # Check if already running
+            if self.is_running(account_id):
+                return False, "Bot is already running for this account"
+
+            # Check max concurrent bots
+            running_count = len(self.get_running_accounts())
+            if running_count >= MAX_CONCURRENT_BOTS:
+                return False, f"Maximum {MAX_CONCURRENT_BOTS} concurrent bots reached"
+
+            # Get account
+            account = db.get_account(account_id)
+            if not account:
+                return False, "Account not found"
+
+            # Initialize state
+            self._states[account_id] = BotState(
+                status=BotStatus.STARTING,
+                account_id=account_id,
+                account_name=account.name,
+            )
 
             try:
                 settings = get_settings()
 
-                # Apply captcha settings from database (with .env as fallback)
+                # Apply captcha settings from database
                 captcha_provider = db.get_setting("captcha_provider", "") or settings.captcha_provider
                 settings.captcha_provider = captcha_provider
 
@@ -210,13 +259,12 @@ class BotManager:
                     settings.openai_api_base = db.get_setting("openai_api_base", "") or settings.openai_api_base
                     settings.openai_model = db.get_setting("openai_model", "") or settings.openai_model
                 else:
-                    # Gemini provider
                     if not settings.gemini_api_key or settings.gemini_api_key == "your_gemini_api_key_here":
                         return False, "GEMINI_API_KEY not configured"
                     gemini_model = db.get_setting("gemini_model", "") or settings.gemini_model
                     settings.gemini_model = gemini_model
 
-                # Apply feature settings from database (with .env as fallback)
+                # Apply feature settings from database
                 auto_fight = db.get_setting("auto_fight_npc", "")
                 if auto_fight:
                     settings.auto_fight_npc = auto_fight.lower() == "true"
@@ -233,94 +281,103 @@ class BotManager:
                 if quests_during_break:
                     settings.quests_during_break = quests_during_break.lower() == "true"
 
-                # Get active account from database
-                active_account = db.get_active_account()
-                if active_account:
-                    logger.info(f"Using account: {active_account.name} ({active_account.email})")
-                    settings.simplemmo_email = active_account.email
-                    settings.simplemmo_password = active_account.password
-                    # Clear cached tokens to force re-login with new account
-                    settings.simplemmo_laravel_session = ""
-                    settings.simplemmo_xsrf_token = ""
-                    settings.simplemmo_api_token = ""
+                # Set account credentials
+                logger.info(f"Starting bot for account: {account.name} ({account.email})")
+                settings.simplemmo_email = account.email
+                settings.simplemmo_password = account.password
+                settings.simplemmo_laravel_session = ""
+                settings.simplemmo_xsrf_token = ""
+                settings.simplemmo_api_token = ""
 
-                # Auto-login if needed
-                needs_login = (
-                    not settings.simplemmo_laravel_session
-                    or not settings.simplemmo_xsrf_token
-                    or not settings.simplemmo_api_token
-                    or settings.simplemmo_api_token == "your_api_token_here"
-                )
+                # Auto-login
+                logger.info(f"[{account.name}] Attempting auto-login...")
+                credentials = auto_login(settings)
+                if credentials:
+                    settings.simplemmo_laravel_session = credentials.laravel_session
+                    settings.simplemmo_xsrf_token = credentials.xsrf_token
+                    if credentials.api_token:
+                        settings.simplemmo_api_token = credentials.api_token
+                else:
+                    self._states.pop(account_id, None)
+                    return False, f"Auto-login failed for {account.name}"
 
-                if needs_login:
-                    if settings.simplemmo_email and settings.simplemmo_password:
-                        logger.info("Attempting auto-login...")
-                        credentials = auto_login(settings)
-                        if credentials:
-                            settings.simplemmo_laravel_session = credentials.laravel_session
-                            settings.simplemmo_xsrf_token = credentials.xsrf_token
-                            if credentials.api_token:
-                                settings.simplemmo_api_token = credentials.api_token
-                        else:
-                            return False, "Auto-login failed"
-                    else:
-                        return False, "No account selected. Add and activate an account first."
-
-                if not settings.simplemmo_api_token or settings.simplemmo_api_token == "your_api_token_here":
+                if not settings.simplemmo_api_token:
+                    self._states.pop(account_id, None)
                     return False, "API token not available"
 
                 # Start bot in thread
-                self._thread = threading.Thread(
+                thread = threading.Thread(
                     target=self._run_bot,
-                    args=(settings,),
+                    args=(account_id, account, settings),
                     daemon=True,
+                    name=f"bot-{account.name}",
                 )
-                self._thread.start()
+                self._threads[account_id] = thread
+                thread.start()
 
-                return True, "Bot started"
+                return True, f"Bot started for {account.name}"
 
             except Exception as e:
-                self.state.status = BotStatus.ERROR
-                self.state.error_message = str(e)
+                self._states[account_id].status = BotStatus.ERROR
+                self._states[account_id].error_message = str(e)
                 return False, str(e)
 
-    def stop(self) -> tuple[bool, str]:
-        """Stop the bot."""
+    def stop(self, account_id: int | None = None) -> tuple[bool, str]:
+        """Stop the bot for specific account or all bots."""
         with self._lock:
-            if not self.is_running():
-                return False, "Bot is not running"
+            if account_id is None:
+                # Stop all bots
+                running = self.get_running_accounts()
+                if not running:
+                    return False, "No bots are running"
+                for aid in running:
+                    self._stop_single(aid)
+                return True, f"Stopped {len(running)} bot(s)"
 
-            self.state.status = BotStatus.STOPPING
+            return self._stop_single(account_id)
 
-            if self._bot:
-                self._bot.stop()
-                if self.state.session_id:
-                    db.add_log(self.state.session_id, "INFO", "Stop requested by user")
+    def _stop_single(self, account_id: int) -> tuple[bool, str]:
+        """Stop a single bot."""
+        state = self._states.get(account_id)
+        if not state or state.status not in (BotStatus.RUNNING, BotStatus.STARTING):
+            return False, "Bot is not running for this account"
 
-            # Wait for thread to finish (with timeout)
-            if self._thread and self._thread.is_alive():
-                self._thread.join(timeout=10)
+        state.status = BotStatus.STOPPING
+        account_name = state.account_name or f"Account {account_id}"
 
-            if self.state.session_id:
-                # Final stats update
-                if self.state.travel_stats:
-                    stats = self.state.travel_stats
-                    db.update_session(
-                        self.state.session_id,
-                        steps_taken=stats.steps_taken,
-                        npcs_fought=stats.npcs_fought,
-                        npcs_won=stats.npcs_won,
-                        materials_gathered=stats.materials_gathered,
-                        items_found=stats.items_found,
-                        gold_earned=stats.gold_earned,
-                        exp_earned=stats.exp_earned,
-                        captchas_solved=stats.captchas_solved,
-                        errors=stats.errors,
-                    )
-                db.end_session(self.state.session_id, "stopped")
+        # Stop the bot
+        bot = self._bots.get(account_id)
+        if bot:
+            bot.stop()
+            if state.session_id:
+                db.add_log(state.session_id, "INFO", "Stop requested by user")
 
-            self.state.status = BotStatus.STOPPED
-            return True, "Bot stopped"
+        # Wait for thread
+        thread = self._threads.get(account_id)
+        if thread and thread.is_alive():
+            thread.join(timeout=10)
+
+        # Final stats update
+        if state.session_id and state.travel_stats:
+            stats = state.travel_stats
+            db.update_session(
+                state.session_id,
+                steps_taken=stats.steps_taken,
+                npcs_fought=stats.npcs_fought,
+                npcs_won=stats.npcs_won,
+                materials_gathered=stats.materials_gathered,
+                items_found=stats.items_found,
+                gold_earned=stats.gold_earned,
+                exp_earned=stats.exp_earned,
+                captchas_solved=stats.captchas_solved,
+                errors=stats.errors,
+            )
+            db.end_session(state.session_id, "stopped")
+
+        state.status = BotStatus.STOPPED
+        self._threads.pop(account_id, None)
+
+        return True, f"Bot stopped for {account_name}"
 
 
 # Global instance
