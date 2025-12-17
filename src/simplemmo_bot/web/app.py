@@ -209,6 +209,7 @@ async def dashboard(request: Request) -> HTMLResponse:
             "current_session": current_session,
             "running_accounts": running_accounts,
             "bot_states": all_states,
+            "running_count": len(running_accounts),
         },
     )
 
