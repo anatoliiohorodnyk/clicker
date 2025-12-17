@@ -219,18 +219,56 @@ async def dashboard(request: Request) -> HTMLResponse:
 async def settings_page(request: Request) -> HTMLResponse:
     """Settings page."""
     settings = get_settings()
-    # Get captcha settings from database or use defaults
-    captcha_provider = db.get_setting("captcha_provider", settings.captcha_provider)
-    gemini_model = db.get_setting("gemini_model", settings.gemini_model)
-    openai_api_base = db.get_setting("openai_api_base", settings.openai_api_base)
-    openai_api_key = db.get_setting("openai_api_key", settings.openai_api_key)
-    openai_model = db.get_setting("openai_model", settings.openai_model)
+
+    # Load all settings from database with .env as fallback
+    def get_int(key: str, default: int) -> int:
+        val = db.get_setting(key, "")
+        return int(val) if val else default
+
+    def get_bool(key: str, default: bool) -> bool:
+        val = db.get_setting(key, "")
+        return val.lower() == "true" if val else default
+
+    # Timing settings
+    step_delay_min = get_int("step_delay_min", settings.step_delay_min)
+    step_delay_max = get_int("step_delay_max", settings.step_delay_max)
+    break_interval_min = get_int("break_interval_min", settings.break_interval_min)
+    break_interval_max = get_int("break_interval_max", settings.break_interval_max)
+    break_duration_min = get_int("break_duration_min", settings.break_duration_min)
+    break_duration_max = get_int("break_duration_max", settings.break_duration_max)
+
+    # Feature settings
+    auto_fight_npc = get_bool("auto_fight_npc", settings.auto_fight_npc)
+    auto_gather_materials = get_bool("auto_gather_materials", settings.auto_gather_materials)
+    use_healer = get_bool("use_healer", settings.use_healer)
+    quests_during_break = get_bool("quests_during_break", settings.quests_during_break)
+    only_quests = get_bool("only_quests", settings.only_quests)
+
+    # Captcha settings
+    captcha_provider = db.get_setting("captcha_provider", "") or settings.captcha_provider
+    gemini_model = db.get_setting("gemini_model", "") or settings.gemini_model
+    openai_api_base = db.get_setting("openai_api_base", "") or settings.openai_api_base
+    openai_api_key = db.get_setting("openai_api_key", "") or settings.openai_api_key
+    openai_model = db.get_setting("openai_model", "") or settings.openai_model
+
     return templates.TemplateResponse(
         "settings.html",
         {
             "request": request,
             "page": "settings",
-            "settings": settings,
+            "settings": {
+                "step_delay_min": step_delay_min,
+                "step_delay_max": step_delay_max,
+                "break_interval_min": break_interval_min,
+                "break_interval_max": break_interval_max,
+                "break_duration_min": break_duration_min,
+                "break_duration_max": break_duration_max,
+                "auto_fight_npc": auto_fight_npc,
+                "auto_gather_materials": auto_gather_materials,
+                "use_healer": use_healer,
+                "quests_during_break": quests_during_break,
+                "only_quests": only_quests,
+            },
             "captcha_provider": captcha_provider,
             "gemini_model": gemini_model,
             "openai_api_base": openai_api_base,

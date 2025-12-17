@@ -264,6 +264,26 @@ class BotManager:
                     gemini_model = db.get_setting("gemini_model", "") or settings.gemini_model
                     settings.gemini_model = gemini_model
 
+                # Apply timing settings from database
+                step_delay_min = db.get_setting("step_delay_min", "")
+                if step_delay_min:
+                    settings.step_delay_min = int(step_delay_min)
+                step_delay_max = db.get_setting("step_delay_max", "")
+                if step_delay_max:
+                    settings.step_delay_max = int(step_delay_max)
+                break_interval_min = db.get_setting("break_interval_min", "")
+                if break_interval_min:
+                    settings.break_interval_min = int(break_interval_min)
+                break_interval_max = db.get_setting("break_interval_max", "")
+                if break_interval_max:
+                    settings.break_interval_max = int(break_interval_max)
+                break_duration_min = db.get_setting("break_duration_min", "")
+                if break_duration_min:
+                    settings.break_duration_min = int(break_duration_min)
+                break_duration_max = db.get_setting("break_duration_max", "")
+                if break_duration_max:
+                    settings.break_duration_max = int(break_duration_max)
+
                 # Apply feature settings from database
                 auto_fight = db.get_setting("auto_fight_npc", "")
                 if auto_fight:
