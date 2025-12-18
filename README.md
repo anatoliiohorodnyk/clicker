@@ -5,7 +5,7 @@ Automated travel & resource farming bot for SimpleMMO with web control panel.
 ## Features
 
 - **Web Control Panel** — Start/stop bot, view statistics, manage settings (mobile-friendly)
-- **Multi-Account Support** — Add multiple accounts, switch between them
+- **Multi-Account Support** — Add multiple accounts, run up to 5 bots simultaneously
 - **Auto Travel** — Human-like delays and break pauses
 - **Auto Fight NPCs** — Automatically attack encountered NPCs
 - **Auto Gather Materials** — Collect materials when found
@@ -34,9 +34,10 @@ Open `http://localhost:8080` in browser.
 
 Access the control panel at `http://localhost:8080`
 
-- **Dashboard** — Bot status, session statistics, start/stop controls
+- **Dashboard** — Running bots overview, live statistics, quick controls
+- **Accounts** — Add/edit/delete accounts, start/stop bots per account, live stats
 - **Settings** — Configure delays, breaks, captcha provider, AI models
-- **Accounts** — Add/edit/delete game accounts, see levels, enable auto-equip
+- **Logs** — Real-time bot activity logs
 
 ## Environment Variables
 
@@ -131,7 +132,6 @@ cp /data/bot.db /data/bot.db.backup
 - [ ] Auto deposit gold to Bank
 - [ ] Telegram notifications
 - [ ] Auto-upgrade stats
-- [ ] Multiple accounts running simultaneously
 - [ ] Proxy support
 - [ ] Auto-claim daily rewards
 - [ ] Auto-tasks (daily)
